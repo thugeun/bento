@@ -87,6 +87,9 @@ class Bento(QObject):
         self.current_annotations = [] # tuples ('ch_key', bout)
         self.behaviors = Behaviors()
         self.pending_bout = None
+        self.selected_bout = None   # (chan_name, bout) selected by mouse click in the annotations view
+        self.edge_drag = None       # {'edge': 'start'|'end', 'orig': Timecode} while dragging a bout edge
+        self.reopened_bout = None   # (chan_name, bout) taken out of its channel while re-annotated via pending_bout
         self.bento_dir = expanduser("~") + sep + ".bento" + sep
         self.loadBehaviors()
         self.behaviorsDialog = BehaviorsDialog(self)
@@ -388,6 +391,136 @@ class Bento(QObject):
             bout.color())
             for (c, bout) in self.current_annotations])
 
+    # Bout selection / editing via the annotations view
+
+    def channel_name_at_row(self, row):
+        """
+        Map a scene row (int y) back to a channel name, or None.
+        """
+        for name, ix in self.annotationsScene.chan_map.items():
+            if ix == row:
+                return name
+        return None
+
+    def bout_at(self, chan, t: Timecode):
+        """
+        Return the (visible) bout in channel chan spanning time t, or None.
+        If several overlap, prefer the shortest so inner bouts stay clickable.
+        """
+        if chan is None or chan not in self.annotations.channel_names():
+            return None
+        bouts = [b for b in self.annotations.channel(chan).get_at(t) if b.is_visible()]
+        if not bouts:
+            return None
+        return min(bouts, key=lambda b: b.len().float)
+
+    def select_bout(self, chan, bout):
+        self.selected_bout = (chan, bout) if bout else None
+        self.noteAnnotationsChanged()
+
+    def clear_selection(self):
+        if self.selected_bout or self.edge_drag:
+            self.selected_bout = None
+            self.edge_drag = None
+            self.noteAnnotationsChanged()
+
+    def begin_edge_drag(self, edge):
+        if not self.selected_bout or edge not in ('start', 'end'):
+            return False
+        _, bout = self.selected_bout
+        orig = bout.start() if edge == 'start' else bout.end()
+        self.edge_drag = {'edge': edge, 'orig': orig}
+        return True
+
+    def drag_bout_edge(self, new_t: Timecode):
+        if not self.edge_drag or not self.selected_bout:
+            return
+        chan, bout = self.selected_bout
+        channel = self.annotations.channel(chan)
+        new_t = max(new_t, self.time_start)
+        new_t = min(new_t, self.time_end)
+        lo = min(new_t, self.edge_drag['orig'], bout.start(), bout.end())
+        hi = max(new_t, self.edge_drag['orig'], bout.start(), bout.end())
+        if self.edge_drag['edge'] == 'start':
+            if new_t > bout.end():
+                new_t = bout.end()
+            channel.update_start(bout, new_t)
+        else:
+            if new_t < bout.start():
+                new_t = bout.start()
+            channel.update_end(bout, new_t)
+        self.noteAnnotationsChanged(lo, hi)
+
+    def end_edge_drag(self):
+        if not self.edge_drag or not self.selected_bout:
+            self.edge_drag = None
+            return
+        chan, bout = self.selected_bout
+        edge = self.edge_drag['edge']
+        lo = min(bout.start(), self.edge_drag['orig'])
+        hi = max(bout.end(), self.edge_drag['orig'])
+        self.edge_drag = None
+        # jump the video to the edited edge so the frame can be checked
+        self.set_time(bout.start() if edge == 'start' else bout.end())
+        # merge with any same-behavior bouts now overlapping the edited one
+        self.annotations.coalesce_bouts(lo, hi, chan)
+        if bout not in self.annotations.channel(chan).get_in_range(bout.start(), bout.end()):
+            # our bout was absorbed into another one; select the survivor
+            survivors = [b for b in self.annotations.channel(chan).get_at(bout.start()) if b.name() == bout.name()]
+            self.selected_bout = (chan, survivors[0]) if survivors else None
+        self.update_current_annotations()
+        self.noteAnnotationsChanged(lo, hi)
+
+    def reopen_bout_edge(self, chan, bout, edge):
+        """
+        Re-annotate one edge of an existing bout with the hot-key mechanism:
+        the bout is lifted out of its channel, a pending_bout is anchored at the
+        opposite edge, the time jumps to the chosen edge, and the hatched region
+        follows the current time until the behavior's hot key is pressed.
+        Esc (or a different hot key) puts the original bout back.
+        """
+        if bout is None or edge not in ('start', 'end'):
+            return
+        if self.reopened_bout:
+            # finish any previous reopen first by restoring it
+            prev, self.reopened_bout = self.reopened_bout, None
+            self.restore_reopened_bout(prev)
+        self.pending_bout = None
+        self.selected_bout = None
+        self.edge_drag = None
+        try:
+            self.annotations.channel(chan).remove(bout)
+        except ValueError:
+            return
+        self.reopened_bout = (chan, bout)
+        anchor = bout.end() if edge == 'start' else bout.start()
+        self.pending_bout = Bout(anchor, anchor, bout.behavior())
+        self.set_time(bout.start() if edge == 'start' else bout.end())
+        self.update_current_annotations()
+        self.noteAnnotationsChanged(bout.start(), bout.end())
+
+    def restore_reopened_bout(self, reopened):
+        chan, bout = reopened
+        if bout not in self.annotations.channel(chan).get_in_range(bout.start(), bout.end()):
+            self.annotations.channel(chan).add(bout)
+        self.update_current_annotations()
+        self.noteAnnotationsChanged(bout.start(), bout.end())
+
+    @Slot()
+    def deleteSelectedBout(self):
+        if not self.selected_bout:
+            return
+        chan, bout = self.selected_bout
+        start, end = bout.start(), bout.end()
+        try:
+            self.annotations.channel(chan).remove(bout)
+        except ValueError:
+            pass
+        self.selected_bout = None
+        self.edge_drag = None
+        self.update_current_annotations()
+        self.noteAnnotationsChanged(start, end)
+
     def set_time(self, new_tc: Timecode):
         if not isinstance(new_tc, Timecode):
             new_tc = Timecode('30.0', new_tc)
@@ -399,6 +532,43 @@ class Bento(QObject):
 
     def change_time(self, increment: Timecode):
         self.set_time(self.current_time + increment)
+
+    # accumulated wheel angle (1/8 degree units) not yet converted to frames
+    _wheel_residual = 0
+    # frames moved per wheel notch (plain / Shift / Ctrl) -- tune to taste
+    WHEEL_FRAMES = 1
+    WHEEL_FRAMES_SHIFT = 10
+    WHEEL_FRAMES_CTRL = 30
+
+    def wheel_time_step(self, event):
+        """
+        Scroll time with the mouse wheel / trackpad.
+        One wheel notch (120 units) = WHEEL_FRAMES frames;
+        Shift = WHEEL_FRAMES_SHIFT, Ctrl = WHEEL_FRAMES_CTRL.
+        Wheel down / swipe right moves forward in time.
+        Returns True if the event was consumed.
+        """
+        delta = event.angleDelta()
+        d = delta.y() if delta.y() != 0 else -delta.x()
+        if d == 0:
+            return False
+        if event.phase() not in (Qt.NoScrollPhase, Qt.ScrollUpdate, Qt.ScrollBegin):
+            # ignore trackpad momentum/end phases
+            return True
+        self._wheel_residual += d
+        notches = int(self._wheel_residual / 120)
+        if notches == 0:
+            return True
+        self._wheel_residual -= notches * 120
+        mods = event.modifiers()
+        if mods & Qt.ControlModifier:
+            step = self.WHEEL_FRAMES_CTRL
+        elif mods & Qt.ShiftModifier:
+            step = self.WHEEL_FRAMES_SHIFT
+        else:
+            step = self.WHEEL_FRAMES
+        self.change_time(-notches * step)   # wheel down (negative y) -> forward
+        return True
 
     def get_time(self):
         return self.current_time
@@ -454,6 +624,10 @@ class Bento(QObject):
         """
         if event.key() == Qt.Key_Escape:
             self.pending_bout = None
+            if self.reopened_bout:
+                reopened, self.reopened_bout = self.reopened_bout, None
+                self.restore_reopened_bout(reopened)
+            self.clear_selection()
             return
         shift = bool(event.modifiers() & Qt.ShiftModifier)
         do_delete = (event.key() == Qt.Key_Backspace)
@@ -473,36 +647,56 @@ class Bento(QObject):
 
         # Is there a pending bout?  If so, complete the annotation activity
         if self.pending_bout:
-            chan = self.active_channels[0]
-            if self.pending_bout.start() > self.current_time:
-                # swap start and end before completing
-                self.pending_bout.set_end(self.pending_bout.start())
-                self.pending_bout.set_start(self.current_time)
-            else:
-                self.pending_bout.set_end(self.current_time)
-
-            if do_delete:
-                # truncate or remove any bouts of the same behavior as pending_bout
-                self.annotations.truncate_or_remove_bouts(
-                    self.pending_bout.behavior(),
-                    self.pending_bout.start(),
-                    self.pending_bout.end(),
-                    chan)
-
-            elif self.pending_bout.name() == beh.get_name():
-                # insert the pending bout into the active channel (typical case)
-                self.annotations.add_bout(self.pending_bout, chan)
-                self.annotations.coalesce_bouts(
-                    self.pending_bout.start(),
-                    self.pending_bout.end(),
-                    chan)
-            start = self.pending_bout.start()
-            end = self.pending_bout.end()
-            self.pending_bout = None
-            self.noteAnnotationsChanged(start, end)
+            self.complete_pending_bout(beh, do_delete)
         else:
             # Start a new annotation activity by saving a pending_bout
             self.pending_bout = Bout(self.current_time, self.current_time, beh)
+
+    def complete_pending_bout(self, beh=None, do_delete=False):
+        """
+        Finish the pending bout at the current time.
+        beh None (e.g. mouse double-click) means "commit as the pending bout's own behavior".
+        """
+        if not self.pending_bout:
+            return
+        if beh is None:
+            beh = self.pending_bout.behavior()
+        reopened = self.reopened_bout
+        self.reopened_bout = None
+        # a reopened bout completes into its own channel, not the active one
+        chan = reopened[0] if reopened else self.active_channels[0]
+        if reopened and not do_delete and self.pending_bout.name() != beh.get_name():
+            # different behavior key pressed: abandon the edit, put the original back
+            self.restore_reopened_bout(reopened)
+            self.pending_bout = None
+            return
+        if self.pending_bout.start() > self.current_time:
+            # swap start and end before completing
+            self.pending_bout.set_end(self.pending_bout.start())
+            self.pending_bout.set_start(self.current_time)
+        else:
+            self.pending_bout.set_end(self.current_time)
+
+        if do_delete:
+            # truncate or remove any bouts of the same behavior as pending_bout
+            self.annotations.truncate_or_remove_bouts(
+                self.pending_bout.behavior(),
+                self.pending_bout.start(),
+                self.pending_bout.end(),
+                chan)
+
+        elif self.pending_bout.name() == beh.get_name():
+            # insert the pending bout into the active channel (typical case)
+            self.annotations.add_bout(self.pending_bout, chan)
+            self.annotations.coalesce_bouts(
+                self.pending_bout.start(),
+                self.pending_bout.end(),
+                chan)
+        start = self.pending_bout.start()
+        end = self.pending_bout.end()
+        self.pending_bout = None
+        self.update_current_annotations()
+        self.noteAnnotationsChanged(start, end)
 
     @Slot()
     def quit(self, event):

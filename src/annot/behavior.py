@@ -156,10 +156,19 @@ class Behaviors(QAbstractTableModel):
     def load(self, f):
         line = f.readline()
         while line:
-            hot_key, name, r, g, b = line.strip().split(' ')
+            if not line.strip():
+                line = f.readline()
+                continue
+            # Format: "hot_key name r g b [active visible]"
+            # (active/visible are optional 0/1 flags for backward compatibility)
+            fields = line.strip().split(' ')
+            hot_key, name, r, g, b = fields[:5]
+            active = bool(int(fields[5])) if len(fields) > 5 else False
+            visible = bool(int(fields[6])) if len(fields) > 6 else True
             if hot_key == '_':
                 hot_key = ''
-            self.add(Behavior(name, hot_key, QColor.fromRgbF(float(r), float(g), float(b))))
+            self.add(Behavior(name, hot_key, QColor.fromRgbF(float(r), float(g), float(b)),
+                              active=active, visible=visible))
             line = f.readline()
 
     def save(self, f):
@@ -168,7 +177,8 @@ class Behaviors(QAbstractTableModel):
             if h == '':
                 h = '_'
             color = beh.get_color()
-            f.write(f"{h} {beh.get_name()} {color.redF()} {color.greenF()} {color.blueF()}" + os.linesep)
+            f.write(f"{h} {beh.get_name()} {color.redF()} {color.greenF()} {color.blueF()} "
+                    f"{int(beh.is_active())} {int(beh.is_visible())}\n")
 
     def get(self, name):
         if name not in self._by_name.keys():

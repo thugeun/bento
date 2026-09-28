@@ -31,6 +31,11 @@ class AnnotationsView(QGraphicsView):
         self.horizontalScrollBar().sliderReleased.connect(self.updateFromScroll)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.ticksScale = 1.
+        self.press_pos = None
+        self.moved = False
+        self.dragging_edge = None
+        self.skip_release = False
+        self.setMouseTracking(True)   # needed for the hover cursor near bout edges
         self.setInteractive(False)
         self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
 
@@ -91,14 +96,46 @@ class AnnotationsView(QGraphicsView):
         event.ignore()
 
     def wheelEvent(self, event: QWheelEvent) -> None:
-        # Override the widget behavior on wheel events
-        # (including "magic mouse" and trackpad gestures)
-        if event.phase() == Qt.ScrollUpdate:
-            self.bento.change_time(int(event.angleDelta().x() / 2))
+        # Override the widget behavior on wheel events: mouse wheel and
+        # trackpad gestures both scroll time (see Bento.wheel_time_step)
+        if self.bento.wheel_time_step(event):
             event.accept()
-        else: # ignores wheel "momentum" among other things
+        else:
             event.ignore()
         # super().wheelEvent(event)
+
+    # Mouse interaction
+    #   click on a bout            -> select it (outlined); click elsewhere -> deselect
+    #   drag a selected bout edge  -> move its start/end (hatched preview), video follows
+    #   drag anywhere else         -> scrub time (original behavior)
+    #   Delete key                 -> delete selected bout (handled in MainWindow)
+
+    EDGE_GRAB_PX = 6      # pixel tolerance for grabbing a bout edge
+    CLICK_SLOP_PX = 4     # max mouse travel for a press/release to count as a click
+
+    def _time_at(self, event):
+        x = self.mapToScene(event.pos()).x()
+        return Timecode(self.time_x.framerate, start_seconds=max(0., x))
+
+    def _edge_under(self, event):
+        """
+        Return 'start' | 'end' if the cursor is within EDGE_GRAB_PX of a
+        selected bout's edge (on the bout's channel row), else None.
+        """
+        sel = self.bento.selected_bout if self.bento else None
+        if not sel:
+            return None
+        chan, bout = sel
+        scene_pt = self.mapToScene(event.pos())
+        row = self.bento.annotationsScene.chan_map.get(chan)
+        if row is None or not (row <= scene_pt.y() < row + 1.):
+            return None
+        tol = self.EDGE_GRAB_PX / max(self.transform().m11(), 1e-9)
+        d_start = abs(scene_pt.x() - bout.start().float)
+        d_end = abs(scene_pt.x() - (bout.start().float + bout.len().float))
+        if min(d_start, d_end) > tol:
+            return None
+        return 'start' if d_start <= d_end else 'end'
 
     def mousePressEvent(self, event):
         assert isinstance(event, QMouseEvent)
@@ -106,18 +143,107 @@ class AnnotationsView(QGraphicsView):
         assert not self.transform().isRotating()
         self.scale_h = self.transform().m11()
         self.start_x = event.localPos().x() / self.scale_h
+        self.press_pos = event.pos()
+        self.moved = False
         self.time_x = self.bento.get_time()
+        self.dragging_edge = None
+        if event.button() == Qt.LeftButton:
+            edge = self._edge_under(event)
+            if edge and self.bento.begin_edge_drag(edge):
+                self.dragging_edge = edge
         event.accept()
 
     def mouseMoveEvent(self, event):
         assert isinstance(event, QMouseEvent)
         assert self.bento
-        x = event.localPos().x() / self.scale_h
-        self.bento.set_time(Timecode(
-            self.time_x.framerate,
-            start_seconds=self.time_x.float + (self.start_x - x)
-        ))
+        if not (event.buttons() & Qt.LeftButton):
+            # hover: show a resize cursor near a selected bout's edge
+            self.setCursor(Qt.SizeHorCursor if self._edge_under(event) else Qt.ArrowCursor)
+            event.accept()
+            return
+        if (event.pos() - self.press_pos).manhattanLength() > self.CLICK_SLOP_PX:
+            self.moved = True
+        if self.dragging_edge:
+            # delta from the press point (scene units) keeps the drag stable
+            # even if the view scrolls; the video follows on release
+            dx = event.localPos().x() / self.scale_h - self.start_x
+            orig = self.bento.edge_drag['orig'].float
+            self.bento.drag_bout_edge(Timecode(self.time_x.framerate, start_seconds=max(0., orig + dx)))
+        else:
+            x = event.localPos().x() / self.scale_h
+            self.bento.set_time(Timecode(
+                self.time_x.framerate,
+                start_seconds=self.time_x.float + (self.start_x - x)
+            ))
         event.accept()
+
+    def mouseDoubleClickEvent(self, event):
+        """
+        Double-click on an edge of the *selected* bout (click it first to
+        focus it): reopen that edge with the hot-key mechanism (hatched
+        pending region that follows the current time, confirmed with the
+        behavior's hot key, cancelled with Esc).  Double-clicks elsewhere
+        do nothing.
+        """
+        assert self.bento
+        self.skip_release = True
+        if event.button() == Qt.LeftButton and self.bento.pending_bout:
+            # pending state: double-click commits the bout at the clicked time
+            # (same as pressing the behavior's hot key there)
+            self.bento.set_time(self._time_at(event))
+            self.bento.complete_pending_bout()
+        elif event.button() == Qt.LeftButton and self.bento.selected_bout:
+            edge = self._edge_under(event)
+            if edge:
+                chan, bout = self.bento.selected_bout
+                self.bento.reopen_bout_edge(chan, bout, edge)
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        assert self.bento
+        if self.skip_release:
+            # release that follows a double-click: don't re-select
+            self.skip_release = False
+            self.dragging_edge = None
+            event.accept()
+            return
+        if self.dragging_edge:
+            self.bento.end_edge_drag()
+            self.dragging_edge = None
+        elif event.button() == Qt.LeftButton and not self.moved:
+            # plain click: select the bout under the cursor (or clear selection)
+            scene_pt = self.mapToScene(event.pos())
+            chan = self.bento.channel_name_at_row(int(scene_pt.y()))
+            bout = self.bento.bout_at(chan, self._time_at(event))
+            self.bento.select_bout(chan, bout)
+        event.accept()
+
+    def maybeDrawSelection(self, painter, rect):
+        sel = self.bento.selected_bout
+        if not sel:
+            return
+        chan, bout = sel
+        row = self.bento.annotationsScene.chan_map.get(chan)
+        if row is None:
+            return
+        pen = QPen(Qt.black)
+        pen.setWidth(2)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRect(QRectF(bout.start().float, float(row), bout.len().float, 1.))
+        drag = self.bento.edge_drag
+        if drag:
+            # hatch the region between the edge's original and current position
+            cur = bout.start().float if drag['edge'] == 'start' else bout.end().float
+            brush = QBrush(bout.color(), bs=Qt.DiagCrossPattern)
+            painterTransform = painter.transform()
+            brush.setTransform(QTransform.fromScale(
+                1./painterTransform.m11(), 1./painterTransform.m22()))
+            painter.setBrush(brush)
+            painter.setPen(Qt.NoPen)
+            painter.drawRect(QRectF(QPointF(drag['orig'].float, float(row)), QPointF(cur, float(row) + 1.)))
+            painter.setBrush(Qt.NoBrush)
 
     def updateFromScroll(self):
         assert self.bento
@@ -146,6 +272,7 @@ class AnnotationsView(QGraphicsView):
 
     def drawForeground(self, painter, rect):
         self.maybeDrawPendingBout(painter, rect)
+        self.maybeDrawSelection(painter, rect)
         # draw current time indicator
         now = self.bento.get_time().float
         pen = QPen(Qt.black)

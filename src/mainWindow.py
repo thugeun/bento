@@ -45,6 +45,16 @@ class MainWindow(QMainWindow):
         self.ui.channelComboBox.currentTextChanged.connect(bento.setActiveChannel)
         self.ui.newChannelPushButton.clicked.connect(bento.newChannel)
 
+        # Keep keyboard focus on the main window: buttons/combo must not take
+        # focus on click, otherwise arrow keys move focus between buttons
+        # instead of scrolling time (QAbstractButton eats Left/Right/Up/Down).
+        from qtpy.QtWidgets import QAbstractButton, QComboBox
+        for w in self.findChildren(QAbstractButton) + self.findChildren(QComboBox):
+            w.setFocusPolicy(Qt.NoFocus)
+        self.ui.annotationsView.setFocusPolicy(Qt.NoFocus)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setFocus()
+
         # menus
         self.menuBar = QMenuBar(self)
         self.setMenuBar(self.menuBar)
@@ -83,6 +93,13 @@ class MainWindow(QMainWindow):
             pass
         event.accept()
 
+    def wheelEvent(self, event):
+        # mouse wheel anywhere over the main window scrolls time
+        if self.bento.wheel_time_step(event):
+            event.accept()
+        else:
+            super().wheelEvent(event)
+
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Left:
             if event.modifiers() & Qt.ShiftModifier:
@@ -111,6 +128,8 @@ class MainWindow(QMainWindow):
             self.bento.processHotKey(event)
         elif event.key() == Qt.Key_Space and self.bento.player:
             self.bento.player.togglePlayer()
+        elif event.key() == Qt.Key_Delete:
+            self.bento.deleteSelectedBout()
         event.accept()
 
     @Slot(tc.Timecode)
