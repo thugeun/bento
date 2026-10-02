@@ -94,8 +94,13 @@ class MainWindow(QMainWindow):
         event.accept()
 
     def wheelEvent(self, event):
-        # mouse wheel anywhere over the main window scrolls time
-        if self.bento.wheel_time_step(event):
+        # mouse wheel anywhere over the main window scrolls time;
+        # Alt + wheel zooms the annotations timeline
+        if event.modifiers() & Qt.AltModifier:
+            consumed = self.ui.annotationsView.zoom_time_scale(event)
+        else:
+            consumed = self.bento.wheel_time_step(event)
+        if consumed:
             event.accept()
         else:
             super().wheelEvent(event)
@@ -121,6 +126,13 @@ class MainWindow(QMainWindow):
                 self.bento.player.halveFrameRate()
             else:
                 self.bento.toNextEvent()
+        elif event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self.bento.selectBoutAtCursor()
+        elif (event.key() == Qt.Key_Backspace and not self.bento.pending_bout
+              and self.bento.reopenSelectedEdgeAtCursor()):
+            # Backspace on an edge frame of the selected bout reopens that edge;
+            # otherwise Backspace keeps its delete-hot-key meaning below
+            pass
         elif (not (event.modifiers() & ~Qt.ShiftModifier)  # not a modifier other than shift
          and (event.key() in range(Qt.Key_A, Qt.Key_Z) or
             event.key() == Qt.Key_Backspace or

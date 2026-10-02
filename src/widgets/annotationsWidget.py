@@ -95,10 +95,41 @@ class AnnotationsView(QGraphicsView):
         # to let the parent window handle the event
         event.ignore()
 
+    # horizontal zoom (Alt + wheel): pixels per second of timeline
+    ZOOM_FACTOR = 1.25
+    MIN_H_SCALE = 0.2
+    MAX_H_SCALE = 3000.
+    TICK_STEPS = (0.1, 0.5, 1., 5., 10., 30., 60., 300., 600.)
+    MIN_TICK_PX = 40.
+
+    def zoom_time_scale(self, event: QWheelEvent) -> bool:
+        """
+        Alt + wheel: zoom the time axis around the current time.
+        Wheel up zooms in.  Returns True if consumed.
+        """
+        delta = event.angleDelta()
+        d = delta.y() if delta.y() != 0 else delta.x()   # Qt reports Alt+wheel as horizontal
+        if d == 0:
+            return False
+        factor = self.ZOOM_FACTOR if d > 0 else 1. / self.ZOOM_FACTOR
+        new_scale = min(self.MAX_H_SCALE, max(self.MIN_H_SCALE, self.transform().m11() * factor))
+        self.setHScaleAndShow(new_scale)
+        # keep tick marks readable: pick the smallest step that is >= MIN_TICK_PX wide
+        self.ticksScale = next((s for s in self.TICK_STEPS if s * new_scale >= self.MIN_TICK_PX),
+                               self.TICK_STEPS[-1])
+        self.updatePosition(self.bento.get_time())
+        self.viewport().update()
+        return True
+
     def wheelEvent(self, event: QWheelEvent) -> None:
-        # Override the widget behavior on wheel events: mouse wheel and
-        # trackpad gestures both scroll time (see Bento.wheel_time_step)
-        if self.bento.wheel_time_step(event):
+        # Override the widget behavior on wheel events:
+        #   Alt + wheel  -> zoom the time axis
+        #   wheel/swipe  -> scroll time (see Bento.wheel_time_step)
+        if event.modifiers() & Qt.AltModifier:
+            consumed = self.zoom_time_scale(event)
+        else:
+            consumed = self.bento.wheel_time_step(event)
+        if consumed:
             event.accept()
         else:
             event.ignore()
@@ -127,7 +158,7 @@ class AnnotationsView(QGraphicsView):
             return None
         chan, bout = sel
         scene_pt = self.mapToScene(event.pos())
-        row = self.bento.annotationsScene.chan_map.get(chan)
+        row = self.bento.channel_row(chan)
         if row is None or not (row <= scene_pt.y() < row + 1.):
             return None
         tol = self.EDGE_GRAB_PX / max(self.transform().m11(), 1e-9)
@@ -223,7 +254,7 @@ class AnnotationsView(QGraphicsView):
         if not sel:
             return
         chan, bout = sel
-        row = self.bento.annotationsScene.chan_map.get(chan)
+        row = self.bento.channel_row(chan)
         if row is None:
             return
         pen = QPen(Qt.black)

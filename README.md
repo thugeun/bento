@@ -14,9 +14,23 @@ Based on v0.2.1-beta. Tested on Windows 11 with Python 3.6 / PySide2 5.15.2.
 | `Delete` | Delete the selected bout. (`Backspace` keeps its original delete-hot-key meaning.) |
 
 Dragging anywhere that is not a selected bout's edge still scrubs time as before.
+Selection works on every channel, including channels added after the trial was loaded.
+
+### Keyboard editing of annotation bouts (active channel)
+| Key | State | Result |
+|---|---|---|
+| `Enter` | nothing selected | Select the bout under the current-time line. If there is none, jump to the nearest bout edge frame and select that bout. |
+| `Enter` | bout selected | Jump to the selected bout's nearer edge (start or end). |
+| `Esc` | bout selected / pending bout | Deselect; cancel a pending bout and restore a reopened bout. |
+| `Backspace` | current time is exactly on an edge frame of the selected bout | Reopen that edge as a pending bout (same mechanism as double-clicking the edge). Confirm with the hot key or a double-click; `Esc` restores. |
+| `Backspace` | otherwise | Original delete-hot-key behavior. |
+| `Delete` | bout selected | Delete the selected bout. |
+
+Typical keyboard-only edit: `Enter` (select) → `Enter` (go to nearer edge) → `Backspace` (open edge) → arrow keys / wheel to the new frame → behavior hot key.
 
 ### Time navigation
 - **Mouse wheel** scrolls time anywhere over the main window: 1 frame per notch, `Shift` = 10 frames, `Ctrl` = 30 frames (constants `WHEEL_FRAMES*` in `src/bento.py`). Trackpad horizontal swipe still works.
+- **`Alt` + wheel** zooms the time axis around the current time (×1.25 per notch, 0.2–3000 px/s; tick spacing adapts).
 - **Arrow keys** always scroll time. Buttons and the channel combo box no longer take keyboard focus, so clicking a button does not turn the arrow keys into button-focus navigation.
 
 ### Behaviors window: Save now actually persists on Windows

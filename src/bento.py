@@ -195,6 +195,7 @@ class Bento(QObject):
             self.mainWindow.addChannelToCombo(chanName)
             self.annotationsScene.addItem(self.annotations.channel(chanName))
             self.annotations.channel(chanName).set_top(float(len(self.annotations.channel_names())-1.))
+            self.annotationsScene.chan_map[chanName] = len(self.annotations.channel_names())-1
             height = len(self.annotations.channel_names()) - self.annotationsScene.sceneRect().height()
             self.annotationsScene.setSceneRect(self.annotationsScene.sceneRect() + QMarginsF(0., 0., 0., float(height)))
             self.annotationsScene.height = self.annotationsScene.sceneRect().height()
@@ -393,12 +394,22 @@ class Bento(QObject):
 
     # Bout selection / editing via the annotations view
 
+    def channel_row(self, chan):
+        """
+        Scene row (y of the channel's top) for a channel name, or None.
+        Channel.top() is the authority: channels added after load are not in
+        annotationsScene.chan_map.
+        """
+        if chan is None or chan not in self.annotations.channel_names():
+            return None
+        return int(round(self.annotations.channel(chan).top()))
+
     def channel_name_at_row(self, row):
         """
         Map a scene row (int y) back to a channel name, or None.
         """
-        for name, ix in self.annotationsScene.chan_map.items():
-            if ix == row:
+        for name in self.annotations.channel_names():
+            if int(round(self.annotations.channel(name).top())) == row:
                 return name
         return None
 
@@ -505,6 +516,76 @@ class Bento(QObject):
             self.annotations.channel(chan).add(bout)
         self.update_current_annotations()
         self.noteAnnotationsChanged(bout.start(), bout.end())
+
+    # Keyboard bout selection / editing (Enter / Esc / Backspace, see MainWindow.keyPressEvent)
+
+    def _edge_at_cursor(self):
+        """
+        'start' | 'end' if the current time sits exactly on an edge frame of the
+        selected bout, else None.
+        """
+        if not self.selected_bout:
+            return None
+        _, bout = self.selected_bout
+        t = self.current_time.frames
+        if t == bout.start().frames:
+            return 'start'
+        if t == bout.end().frames:
+            return 'end'
+        return None
+
+    def _nearest_edge_bout(self, chan, t: Timecode):
+        """
+        (bout, edge_time) of the visible bout in chan whose start or end is
+        closest to t, or (None, None) if the channel is empty.
+        """
+        best, best_t, best_d = None, None, None
+        for bout in self.annotations.channel(chan):
+            if not bout.is_visible():
+                continue
+            for edge_t in (bout.start(), bout.end()):
+                d = abs(edge_t.float - t.float)
+                if best_d is None or d < best_d:
+                    best, best_t, best_d = bout, edge_t, d
+        return best, best_t
+
+    @Slot()
+    def selectBoutAtCursor(self):
+        """
+        Enter:
+          no selection  -> select the bout under the current time (active channel);
+                           if none, jump to the nearest bout edge and select that bout
+          has selection -> jump to the selected bout's nearer edge
+        """
+        if self.selected_bout:
+            _, bout = self.selected_bout
+            d_start = abs(bout.start().float - self.current_time.float)
+            d_end = abs(bout.end().float - self.current_time.float)
+            self.set_time(bout.start() if d_start <= d_end else bout.end())
+            return
+        if not self.active_channels:
+            return
+        chan = self.active_channels[0]
+        bout = self.bout_at(chan, self.current_time)
+        if bout is None:
+            bout, edge_t = self._nearest_edge_bout(chan, self.current_time)
+            if bout is None:
+                return
+            self.set_time(edge_t)
+        self.select_bout(chan, bout)
+
+    def reopenSelectedEdgeAtCursor(self):
+        """
+        Backspace while the current time is on an edge frame of the selected
+        bout: reopen that edge as a pending bout (same as double-clicking it).
+        Returns True if handled.
+        """
+        edge = self._edge_at_cursor()
+        if edge is None:
+            return False
+        chan, bout = self.selected_bout
+        self.reopen_bout_edge(chan, bout, edge)
+        return True
 
     @Slot()
     def deleteSelectedBout(self):
@@ -628,6 +709,7 @@ class Bento(QObject):
                 reopened, self.reopened_bout = self.reopened_bout, None
                 self.restore_reopened_bout(reopened)
             self.clear_selection()
+            self.noteAnnotationsChanged()   # erase the hatched pending region now
             return
         shift = bool(event.modifiers() & Qt.ShiftModifier)
         do_delete = (event.key() == Qt.Key_Backspace)
