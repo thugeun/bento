@@ -10,7 +10,7 @@ from annot.behavior import Behaviors
 from mainWindow import MainWindow
 from video.videoWindow import VideoFrame
 from widgets.annotationsWidget import AnnotationsScene
-from db.schema_sqlalchemy import (AnnotationsData, Investigator, Session, Trial,
+from db.schema_sqlalchemy import (Animal, AnnotationsData, Investigator, Session, Trial,
     VideoData, new_session, create_tables)
 from db.investigatorDialog import InvestigatorDialog
 from db.animalDialog import AnimalDialog
@@ -410,6 +410,12 @@ class Bento(QObject):
                 continue
         return None
 
+    @staticmethod
+    def _safe_name(s):
+        """Make a DB string usable as a file name component."""
+        s = str(s).strip()
+        return "".join(c if (c.isalnum() or c in "-.") else "-" for c in s).strip("-.")
+
     @Slot()
     def autosave_annotations(self):
         """
@@ -424,16 +430,27 @@ class Bento(QObject):
             with self.db_sessionMaker() as db_sess:
                 trial = db_sess.query(Trial).filter(Trial.id == self.trial_id).one()
                 base_directory = None
+                parts = []   # investigator, date, mouse, trial number, stimulus
                 if self.session_id is not None:
-                    base_directory = db_sess.query(Session).filter(
-                        Session.id == self.session_id).one().base_directory
+                    session = db_sess.query(Session).filter(Session.id == self.session_id).one()
+                    base_directory = session.base_directory
+                    investigator = db_sess.query(Investigator).filter(
+                        Investigator.id == session.investigator_id).one_or_none()
+                    animal = db_sess.query(Animal).filter(Animal.id == session.animal_id).one_or_none()
+                    parts.append(investigator.user_name if investigator else None)
+                    parts.append(session.experiment_date.strftime("%Y%m%d")
+                                 if session.experiment_date else None)
+                    parts.append(animal.nickname if animal else None)
+                parts.append(f"trial{trial.trial_num}" if trial.trial_num is not None
+                             else f"trialid{self.trial_id}")
+                parts.append(trial.stimulus)
                 video_files = [video_data.file_path for video_data in trial.video_data]
                 stimulus = trial.stimulus
             out_dir = self.autosave_dir(base_directory)
             if not out_dir:
                 print("autosave: no writable backup directory")
                 return None
-            prefix = f"trial{self.trial_id}_autosave_"
+            prefix = "_".join(self._safe_name(p) for p in parts if p) + "_autosave_"
             fileName = os.path.join(out_dir, prefix + time.strftime("%Y%m%d_%H%M%S") + ".annot")
             with open(fileName, 'w') as file:
                 self.annotations.write_caltech(file, video_files, stimulus)
