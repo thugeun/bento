@@ -3,7 +3,7 @@
 from video.videoWindow_ui import Ui_videoFrame
 import video.seqIo as seqIo
 import video.mp4Io as mp4Io
-from qtpy.QtCore import Signal, Slot, QMargins, QPointF, Qt
+from qtpy.QtCore import QEvent, Signal, Slot, QMargins, QPointF, Qt
 from qtpy.QtGui import QBrush, QFontMetrics, QPen, QPixmap, QImage, QPolygonF
 from qtpy.QtWidgets import QFrame, QGraphicsScene
 from timecode import Timecode
@@ -54,17 +54,33 @@ class VideoScene(QGraphicsScene):
         rectWithMargins -= margins
         whiteBrush = QBrush(Qt.white)
         blackBrush = QBrush(Qt.black)
-        for annot in self.annots:
+        self.annot_bounds = []   # [(QRect in scene coords, annot)] for click hit-testing
+        for annot in self.annots or []:
+            selected = len(annot) > 4 and annot[4]
             painter.setBrush(whiteBrush if annot[2].lightnessF() < 0.5 else blackBrush)
-            text = annot[0] + ": " + annot[1]
+            text = ('▶ ' if selected else '') + annot[0] + ": " + annot[1]
             bounds = fm.boundingRect(rectWithMargins, flags, text)
             painter.setPen(Qt.NoPen)
             painter.drawRect(bounds)
+            if selected:
+                outline = QPen(annot[2])
+                outline.setWidth(2)
+                painter.setPen(outline)
+                painter.setBrush(Qt.NoBrush)
+                painter.drawRect(bounds)
             painter.setPen(annot[2])
             painter.drawText(bounds, text)
+            self.annot_bounds.append((bounds, annot))
             margins.setTop(margins.top() + pointSize + 3)
             rectWithMargins = rect.toRect()
             rectWithMargins -= margins
+
+    def annotAt(self, scene_pos):
+        """Annotation entry whose label box contains scene_pos, or None."""
+        for bounds, annot in getattr(self, 'annot_bounds', []):
+            if bounds.contains(scene_pos.toPoint()):
+                return annot
+        return None
 
 class VideoFrame(QFrame):
 
@@ -89,6 +105,17 @@ class VideoFrame(QFrame):
         self.pixmapItem = self.scene.addPixmap(self.pixmap)
         self.active_annots = []
         self.aspect_ratio = 1.
+        # clicks on the annotation labels drawn over the video select that bout
+        self.ui.videoView.viewport().installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if (obj is self.ui.videoView.viewport() and event.type() == QEvent.MouseButtonPress
+                and event.button() == Qt.LeftButton):
+            annot = self.scene.annotAt(self.ui.videoView.mapToScene(event.pos()))
+            if annot is not None:
+                self.bento.selectBoutFromLabel(annot)
+                return True
+        return super().eventFilter(obj, event)
 
     def resizeEvent(self, event):
         self.ui.videoView.fitInView(self.pixmapItem, aspectRadioMode=Qt.KeepAspectRatio)
@@ -188,6 +215,10 @@ class VideoFrame(QFrame):
     @Slot(list)
     def updateAnnots(self, annots):
         self.active_annots = annots
+        # selection changes arrive without a frame change: repaint the overlay now
+        if isinstance(self.scene, VideoScene):
+            self.scene.setAnnots(self.active_annots)
+            self.scene.update()
 
     @Slot(Qt.CheckState)
     def showPoseDataChanged(self, showPoseData):

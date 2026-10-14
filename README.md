@@ -28,6 +28,24 @@ Selection works on every channel, including channels added after the trial was l
 
 Typical keyboard-only edit: `Enter` (select) → `Enter` (go to nearer edge) → `Backspace` (open edge) → arrow keys / wheel to the new frame → behavior hot key.
 
+### Selecting bouts from the labels
+- Click a line of the current-annotations label (left of the video) or a label drawn over the video to select that bout; click it again to deselect.
+- `Ctrl+1` … `Ctrl+9` select the channel at that position in the channel combo box.
+
+### Relabel / delete a bout from a context menu
+- Right-click a bout in the annotations view: it is selected and a menu lists the active behaviors (color swatch, `[hot key]`) plus "Delete bout".
+- Choose an item by clicking it, or press the behavior's hot key (`Delete`/`Backspace` for delete) while the menu is open.
+- Relabeling merges with neighboring bouts of the new behavior; the selection moves to the surviving bout.
+- Hot keys outside the menu are unchanged: they start/finish a pending bout, whether or not a bout is selected.
+
+### Channel menu
+- **Rename Active Channel…** (duplicates rejected, order kept).
+- **Copy Channel Annotations** `Ctrl+C`, **Paste Annotations (same times)** `Ctrl+V`, **Paste Annotations at Current Time** `Ctrl+Shift+V` (the block is shifted so its first bout starts at the current time). Pasted bouts are independent copies, clamped to the annotation range, and merged with overlapping bouts of the same behavior.
+
+### Automatic backups
+- Every 10 minutes (and at quit), unsaved edits are written to `<session base directory>/_bento_autosave/trial<id>_autosave_<timestamp>.annot` (fallback `~/.bento/autosave/`). Nothing is asked, the database is not touched, inactive bouts are kept. The newest 12 backups per trial are kept. Constants `AUTOSAVE_*` in `src/bento.py`.
+- To recover, load the backup `.annot` as the trial's annotation file and save normally.
+
 ### Time navigation
 - **Mouse wheel** scrolls time anywhere over the main window: 1 frame per notch, `Shift` = 10 frames, `Ctrl` = 30 frames (constants `WHEEL_FRAMES*` in `src/bento.py`). Trackpad horizontal swipe still works.
 - **`Alt` + wheel** zooms the time axis around the current time (×1.25 per notch, 0.2–3000 px/s; tick spacing adapts).

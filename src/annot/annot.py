@@ -47,6 +47,9 @@ class Bout(object):
     def set_end(self, end):
         self._end = end
 
+    def set_behavior(self, behavior):
+        self._behavior = behavior
+
     def len(self):
         return self._end - self._start + tc.Timecode(self._start.framerate, frames=1)
 
@@ -503,6 +506,19 @@ class Annotations(QObject):
     def addEmptyChannel(self, ch: str):
         if ch not in self.channel_names():
             self._channels[ch] = Channel()
+
+    def rename_channel(self, old: str, new: str):
+        """
+        Rename a channel in place, preserving channel order.
+        Raises KeyError if old does not exist, ValueError if new already exists.
+        """
+        if old not in self._channels:
+            raise KeyError(old)
+        if new == old:
+            return
+        if new in self._channels:
+            raise ValueError(f"channel '{new}' already exists")
+        self._channels = {(new if k == old else k): v for k, v in self._channels.items()}
 
     def add_bout(self, bout, channel):
         if bout.name() not in self.annotation_names:

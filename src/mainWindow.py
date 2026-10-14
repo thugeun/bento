@@ -55,6 +55,11 @@ class MainWindow(QMainWindow):
         self.setFocusPolicy(Qt.StrongFocus)
         self.setFocus()
 
+        # annotation label: clickable lines (see eventFilter)
+        self.current_annots = []
+        self.ui.annotLabel.installEventFilter(self)
+        self.ui.annotLabel.setCursor(Qt.PointingHandCursor)
+
         # menus
         self.menuBar = QMenuBar(self)
         self.setMenuBar(self.menuBar)
@@ -82,6 +87,22 @@ class MainWindow(QMainWindow):
         self.createDBAction = self.dbMenu.addAction("Create Database")
         self.createDBAction.triggered.connect(bento.create_db)
 
+        self.channelMenu = self.menuBar.addMenu("Channel")
+        self.newChannelAction = self.channelMenu.addAction("New Channel...")
+        self.newChannelAction.triggered.connect(bento.newChannel)
+        self.renameChannelAction = self.channelMenu.addAction("Rename Active Channel...")
+        self.renameChannelAction.triggered.connect(bento.renameActiveChannel)
+        self.channelMenu.addSeparator()
+        self.copyChannelAction = self.channelMenu.addAction("Copy Channel Annotations")
+        self.copyChannelAction.setShortcut("Ctrl+C")
+        self.copyChannelAction.triggered.connect(bento.copyChannelAnnotations)
+        self.pasteChannelAction = self.channelMenu.addAction("Paste Annotations (same times)")
+        self.pasteChannelAction.setShortcut("Ctrl+V")
+        self.pasteChannelAction.triggered.connect(bento.pasteChannelAnnotations)
+        self.pasteChannelAtTimeAction = self.channelMenu.addAction("Paste Annotations at Current Time")
+        self.pasteChannelAtTimeAction.setShortcut("Ctrl+Shift+V")
+        self.pasteChannelAtTimeAction.triggered.connect(bento.pasteChannelAnnotationsAtCurrentTime)
+
         self.windowsMenu = self.menuBar.addMenu("Windows")
         self.toggleBehaviorVisibilityAction = self.windowsMenu.addAction("Show/Hide Behavior List")
         self.toggleBehaviorVisibilityAction.triggered.connect(bento.toggleBehaviorVisibility)
@@ -106,6 +127,11 @@ class MainWindow(QMainWindow):
             super().wheelEvent(event)
 
     def keyPressEvent(self, event):
+        if (event.modifiers() & Qt.ControlModifier) and Qt.Key_1 <= event.key() <= Qt.Key_9:
+            # Ctrl+1..9: select channel by position
+            self.bento.selectChannelByIndex(event.key() - Qt.Key_1)
+            event.accept()
+            return
         if event.key() == Qt.Key_Left:
             if event.modifiers() & Qt.ShiftModifier:
                 self.bento.skipBackward()
@@ -150,12 +176,29 @@ class MainWindow(QMainWindow):
         self.ui.annotationsView.updatePosition(t)
         self.show()
 
+    @staticmethod
+    def annotEntryText(a):
+        """(chan, name, color, bout, is_selected) -> label line; selected bout is marked."""
+        selected = len(a) > 4 and a[4]
+        return ('▶ ' if selected else '') + a[0] + ': ' + a[1]
+
     @Slot(list)
     def updateAnnotLabel(self, annots):
-        entries = [a[0] + ': ' + a[1] for a in annots]
-        label = '\n'.join(entries)
+        self.current_annots = list(annots)
+        label = '\n'.join(self.annotEntryText(a) for a in annots)
         self.ui.annotLabel.setText(label)
         self.show()
+
+    def eventFilter(self, obj, event):
+        # click on a line of the annotation label selects that bout
+        if (obj is self.ui.annotLabel and event.type() == QEvent.MouseButtonPress
+                and event.button() == Qt.LeftButton and self.current_annots):
+            line_h = max(1, self.ui.annotLabel.fontMetrics().lineSpacing())
+            ix = int(event.pos().y() // line_h)
+            if 0 <= ix < len(self.current_annots):
+                self.bento.selectBoutFromLabel(self.current_annots[ix])
+            return True
+        return super().eventFilter(obj, event)
 
     @Slot()
     def selectTrial(self):
@@ -178,6 +221,11 @@ class MainWindow(QMainWindow):
 
     def clearChannelsCombo(self):
         self.ui.channelComboBox.clear()
+
+    def renameChannelInCombo(self, old, new):
+        ix = self.ui.channelComboBox.findText(old)
+        if ix >= 0:
+            self.ui.channelComboBox.setItemText(ix, new)
 
     @Slot(str)
     def selectChannelByName(self, chanName):

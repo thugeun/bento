@@ -3,10 +3,39 @@
 """
 
 from qtpy.QtCore import Qt, QPointF, QRectF, Slot
-from qtpy.QtGui import (QBrush, QPen, QKeyEvent, QMouseEvent,
+from qtpy.QtGui import (QBrush, QIcon, QPen, QKeyEvent, QMouseEvent, QPixmap,
     QTransform, QWheelEvent)
-from qtpy.QtWidgets import QGraphicsScene, QGraphicsView
+from qtpy.QtWidgets import QGraphicsScene, QGraphicsView, QMenu
 from timecode import Timecode
+
+class HotKeyMenu(QMenu):
+    """
+    QMenu whose items can also be triggered by a single key while the menu is
+    open (behavior hot keys for the relabel menu, Delete/Backspace for delete).
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._hot_keys = {}   # Qt.Key -> QAction
+
+    def bind_hot_key(self, key, action):
+        if isinstance(key, str):
+            if not key:
+                return
+            key = getattr(Qt, 'Key_' + key.upper(), None)
+            if key is None:
+                return
+        self._hot_keys[key] = action
+
+    def keyPressEvent(self, event):
+        act = self._hot_keys.get(event.key())
+        if act is not None and act.isEnabled() and not (event.modifiers() & ~Qt.ShiftModifier):
+            self.close()
+            act.trigger()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
 
 class AnnotationsView(QGraphicsView):
     """
@@ -249,6 +278,42 @@ class AnnotationsView(QGraphicsView):
             self.bento.select_bout(chan, bout)
         event.accept()
 
+    def contextMenuEvent(self, event):
+        """
+        Right-click on a bout: select it and offer the active behaviors to
+        relabel it with (color swatch + hot key shown).
+        """
+        assert self.bento
+        scene_pt = self.mapToScene(event.pos())
+        chan = self.bento.channel_name_at_row(int(scene_pt.y()))
+        bout = self.bento.bout_at(chan, Timecode(self.time_x.framerate, start_seconds=max(0., scene_pt.x())))
+        if bout is None:
+            event.ignore()
+            return
+        self.bento.select_bout(chan, bout)
+        menu = HotKeyMenu(self)
+        title = menu.addAction(f"Relabel '{bout.name()}' as:")
+        title.setEnabled(False)
+        menu.addSeparator()
+        for beh in self.bento.behaviors:
+            if not beh.is_active() or beh is bout.behavior():
+                continue
+            pix = QPixmap(12, 12)
+            pix.fill(beh.get_color())
+            hk = beh.get_hot_key()
+            label = f"{beh.get_name()}" + (f"   [{hk}]" if hk else "")
+            act = menu.addAction(QIcon(pix), label)
+            act.triggered.connect(lambda checked=False, b=beh: self.bento.relabel_selected_bout(b))
+            if hk:
+                menu.bind_hot_key(hk, act)
+        menu.addSeparator()
+        del_act = menu.addAction("Delete bout")
+        del_act.triggered.connect(self.bento.deleteSelectedBout)
+        menu.bind_hot_key(Qt.Key_Delete, del_act)
+        menu.bind_hot_key(Qt.Key_Backspace, del_act)
+        menu.exec_(event.globalPos())
+        event.accept()
+
     def maybeDrawSelection(self, painter, rect):
         sel = self.bento.selected_bout
         if not sel:
@@ -257,12 +322,18 @@ class AnnotationsView(QGraphicsView):
         row = self.bento.channel_row(chan)
         if row is None:
             return
+        sel_rect = QRectF(bout.start().float, float(row), bout.len().float, 1.)
+        # repaint the selected bout in its own color so it sits on top of any
+        # overlapping bouts in the same channel, then outline it
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(bout.color()))
+        painter.drawRect(sel_rect)
         pen = QPen(Qt.black)
         pen.setWidth(2)
         pen.setCosmetic(True)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
-        painter.drawRect(QRectF(bout.start().float, float(row), bout.len().float, 1.))
+        painter.drawRect(sel_rect)
         drag = self.bento.edge_drag
         if drag:
             # hatch the region between the edge's original and current position

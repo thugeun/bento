@@ -4,7 +4,7 @@
 from timecode import Timecode
 from qtpy.QtCore import QMarginsF, QObject, QRectF, QTimer, Qt, Signal, Slot
 from qtpy.QtGui import QColor
-from qtpy.QtWidgets import QApplication, QFileDialog, QMessageBox, QProgressDialog
+from qtpy.QtWidgets import QApplication, QFileDialog, QInputDialog, QMessageBox, QProgressDialog
 from annot.annot import Annotations, Bout
 from annot.behavior import Behaviors
 from mainWindow import MainWindow
@@ -26,7 +26,12 @@ from pose.pose import PoseRegistry
 from channelDialog import ChannelDialog
 from os.path import expanduser, isabs, sep, relpath, splitext
 from utils import fix_path, padded_rectf
-import sys, traceback, time
+import sys, traceback, time, os, glob
+
+# periodic backup of the annotations being edited (see Bento.autosave_annotations)
+AUTOSAVE_INTERVAL_MS = 10 * 60 * 1000
+AUTOSAVE_DIR = "_bento_autosave"     # created under the session base directory
+AUTOSAVE_KEEP = 12                   # newest backups kept per trial
 
 class Player(QObject):
 
@@ -90,6 +95,7 @@ class Bento(QObject):
         self.selected_bout = None   # (chan_name, bout) selected by mouse click in the annotations view
         self.edge_drag = None       # {'edge': 'start'|'end', 'orig': Timecode} while dragging a bout edge
         self.reopened_bout = None   # (chan_name, bout) taken out of its channel while re-annotated via pending_bout
+        self.bout_clipboard = []    # [(start_frames, end_frames, behavior_name)] from copyChannelAnnotations
         self.bento_dir = expanduser("~") + sep + ".bento" + sep
         self.loadBehaviors()
         self.behaviorsDialog = BehaviorsDialog(self)
@@ -104,6 +110,12 @@ class Bento(QObject):
         self.neural_widgets = []
         self.annotations = Annotations(self.behaviors)
         self.annotations.annotations_changed.connect(self.noteAnnotationsChanged)
+        # periodic backup of unsaved edits
+        self.autosave_dirty = False
+        self.autosave_timer = QTimer()
+        self.autosave_timer.setInterval(AUTOSAVE_INTERVAL_MS)
+        self.autosave_timer.timeout.connect(self.autosave_annotations)
+        self.autosave_timer.start()
         self.pose_registry = PoseRegistry()
         self.pose_registry.load_plugins()
         self.mainWindow = MainWindow(self)
@@ -207,6 +219,99 @@ class Bento(QObject):
         self.active_channels = [chanName]
         self.active_channel_changed.emit(self.active_channels[0])
 
+    # Channel rename / copy / paste
+
+    @Slot()
+    def renameActiveChannel(self):
+        if not self.active_channels:
+            return
+        old = self.active_channels[0]
+        new, ok = QInputDialog.getText(self.mainWindow, "Rename Channel",
+                                       f"New name for channel '{old}':", text=old)
+        if not ok:
+            return
+        new = new.strip()
+        if not new or new == old:
+            return
+        if new in self.annotations.channel_names():
+            QMessageBox.about(self.mainWindow, "Rename Channel", f"Channel '{new}' already exists.")
+            return
+        self.renameChannel(old, new)
+
+    def renameChannel(self, old, new):
+        self.annotations.rename_channel(old, new)
+        scene_map = self.annotationsScene.chan_map
+        if old in scene_map:
+            scene_map[new] = scene_map.pop(old)
+        self.active_channels = [new if c == old else c for c in self.active_channels]
+        if self.selected_bout and self.selected_bout[0] == old:
+            self.selected_bout = (new, self.selected_bout[1])
+        if self.reopened_bout and self.reopened_bout[0] == old:
+            self.reopened_bout = (new, self.reopened_bout[1])
+        self.mainWindow.renameChannelInCombo(old, new)
+        self.active_channel_changed.emit(self.active_channels[0])
+        self.newAnnotations = True
+        self.noteAnnotationsChanged()
+
+    @Slot()
+    def copyChannelAnnotations(self):
+        """
+        Copy every bout of the active channel to an internal clipboard
+        (frame numbers + behavior name, so pasting makes independent Bouts).
+        """
+        if not self.active_channels:
+            return
+        chan = self.active_channels[0]
+        self.bout_clipboard = [
+            (bout.start().frames, bout.end().frames, bout.name())
+            for bout in self.annotations.channel(chan)]
+        print(f"Copied {len(self.bout_clipboard)} bouts from channel '{chan}'")
+
+    @Slot()
+    def pasteChannelAnnotations(self):
+        self._paste_bouts(shift_to_current_time=False)
+
+    @Slot()
+    def pasteChannelAnnotationsAtCurrentTime(self):
+        self._paste_bouts(shift_to_current_time=True)
+
+    def _paste_bouts(self, shift_to_current_time):
+        """
+        Paste the clipboard into the active channel (which may be the source
+        channel).  Same-behavior overlaps are merged.  With
+        shift_to_current_time the block is moved so its first bout starts at
+        the current time, otherwise original times are kept.
+        """
+        if not self.active_channels or not getattr(self, 'bout_clipboard', None):
+            return
+        chan = self.active_channels[0]
+        fr = self.current_time.framerate
+        offset = 0
+        if shift_to_current_time:
+            offset = self.current_time.frames - min(s for s, _, _ in self.bout_clipboard)
+        lo, hi = None, None
+        for s, e, name in self.bout_clipboard:
+            s += offset
+            e += offset
+            if e < self.time_start.frames or s > self.time_end.frames:
+                continue
+            s = max(s, self.time_start.frames)
+            e = min(e, self.time_end.frames)
+            self.behaviors.addIfMissing(name)
+            beh = self.behaviors.get(name)
+            beh.set_active(True)
+            bout = Bout(Timecode(fr, frames=s), Timecode(fr, frames=e), beh)
+            self.annotations.add_bout(bout, chan)
+            lo = bout.start() if lo is None or bout.start() < lo else lo
+            hi = bout.end() if hi is None or bout.end() > hi else hi
+        if lo is None:
+            return
+        self.annotations.coalesce_bouts(lo, hi, chan)
+        self.annotations.ensure_active_behaviors()
+        self.update_current_annotations()
+        self.newAnnotations = True
+        self.noteAnnotationsChanged(lo, hi)
+
     def loadBehaviors(self):
         profile_paths = [self.bento_dir, ""]
         for path in profile_paths:
@@ -290,6 +395,62 @@ class Bento(QObject):
                         trial.annotations.append(newAnnot)
                         db_sess.commit()
                         self.newAnnotations = False
+                    self.autosave_dirty = False
+
+    def autosave_dir(self, base_directory):
+        """Backup folder: <session base dir>/_bento_autosave, else ~/.bento/autosave."""
+        for d in (os.path.join(base_directory, AUTOSAVE_DIR) if base_directory else None,
+                  os.path.join(expanduser("~"), ".bento", "autosave")):
+            if not d:
+                continue
+            try:
+                os.makedirs(d, exist_ok=True)
+                return d
+            except OSError:
+                continue
+        return None
+
+    @Slot()
+    def autosave_annotations(self):
+        """
+        Write a timestamped backup of the annotations currently being edited.
+        Runs every AUTOSAVE_INTERVAL_MS (and at quit) when there are unsaved edits.
+        Unlike Save Annotations it does not touch the database, does not ask,
+        and keeps inactive bouts. Only the newest AUTOSAVE_KEEP files per trial are kept.
+        """
+        if not self.autosave_dirty or self.trial_id is None:
+            return None
+        try:
+            with self.db_sessionMaker() as db_sess:
+                trial = db_sess.query(Trial).filter(Trial.id == self.trial_id).one()
+                base_directory = None
+                if self.session_id is not None:
+                    base_directory = db_sess.query(Session).filter(
+                        Session.id == self.session_id).one().base_directory
+                video_files = [video_data.file_path for video_data in trial.video_data]
+                stimulus = trial.stimulus
+            out_dir = self.autosave_dir(base_directory)
+            if not out_dir:
+                print("autosave: no writable backup directory")
+                return None
+            prefix = f"trial{self.trial_id}_autosave_"
+            fileName = os.path.join(out_dir, prefix + time.strftime("%Y%m%d_%H%M%S") + ".annot")
+            with open(fileName, 'w') as file:
+                self.annotations.write_caltech(file, video_files, stimulus)
+            self.autosave_dirty = False
+            # prune old backups of this trial
+            old = sorted(glob.glob(os.path.join(out_dir, prefix + "*.annot")))
+            for fn in old[:-AUTOSAVE_KEEP]:
+                try:
+                    os.remove(fn)
+                except OSError:
+                    pass
+            print(f"autosave: wrote {fileName}")
+            return fileName
+        except Exception as e:
+            print(f"autosave failed: {e}")
+            traceback.print_exc()
+            return None
 
     # File menu actions
 
@@ -380,16 +541,27 @@ class Bento(QObject):
     # State-related methods
 
     def update_current_annotations(self):
+        """
+        Rebuild the list of bouts spanning the current time (active channel)
+        and publish it to the label widgets as
+        (chan, behavior_name, color, bout, is_selected) tuples, selected bout first.
+        """
         self.current_annotations.clear()
         for ch in self.active_channels:
             bouts = self.annotations.channel(ch).get_at(self.current_time)
             for bout in bouts:
                 if bout.is_visible():
                     self.current_annotations.append((ch, bout))
+        sel = self.selected_bout
+        if sel and sel in self.current_annotations:
+            self.current_annotations.remove(sel)
+            self.current_annotations.insert(0, sel)
         self.currentAnnotsChanged.emit([(
             c,
             bout.name(),
-            bout.color())
+            bout.color(),
+            bout,
+            bool(sel) and sel[1] is bout)
             for (c, bout) in self.current_annotations])
 
     # Bout selection / editing via the annotations view
@@ -427,12 +599,38 @@ class Bento(QObject):
 
     def select_bout(self, chan, bout):
         self.selected_bout = (chan, bout) if bout else None
+        self.update_current_annotations()   # re-order labels: selected first
         self.noteAnnotationsChanged()
+
+    @Slot(object)
+    def selectBoutFromLabel(self, entry):
+        """
+        Click on an annotation label (main window or video overlay):
+        entry is a (chan, name, color, bout, is_selected) tuple from
+        currentAnnotsChanged.  Clicking the already-selected bout deselects it.
+        """
+        if not entry or len(entry) < 4:
+            return
+        chan, bout = entry[0], entry[3]
+        if self.selected_bout and self.selected_bout[1] is bout:
+            self.clear_selection()
+            self.update_current_annotations()
+            return
+        self.select_bout(chan, bout)
+
+    @Slot(int)
+    def selectChannelByIndex(self, ix):
+        """Ctrl+1..9: make the ix-th channel (0-based) active."""
+        names = self.annotations.channel_names()
+        if 0 <= ix < len(names):
+            self.setActiveChannel(names[ix])
+            self.update_current_annotations()
 
     def clear_selection(self):
         if self.selected_bout or self.edge_drag:
             self.selected_bout = None
             self.edge_drag = None
+            self.update_current_annotations()
             self.noteAnnotationsChanged()
 
     def begin_edge_drag(self, edge):
@@ -734,6 +932,33 @@ class Bento(QObject):
             # Start a new annotation activity by saving a pending_bout
             self.pending_bout = Bout(self.current_time, self.current_time, beh)
 
+    def relabel_selected_bout(self, beh):
+        """
+        Change the behavior of the selected bout to beh (hot key or context
+        menu).  Same-behavior neighbours are merged; if the bout is absorbed,
+        the surviving bout becomes the selection.
+        """
+        if not self.selected_bout or beh is None:
+            return
+        chan, bout = self.selected_bout
+        if bout.behavior() is beh:
+            return
+        start, end = bout.start(), bout.end()
+        bout.set_behavior(beh)
+        beh.set_active(True)
+        self.annotations.coalesce_bouts(start, end, chan)
+        if bout not in self.annotations.channel(chan).get_in_range(start, end):
+            survivors = [b for b in self.annotations.channel(chan).get_at(start) if b.name() == beh.get_name()]
+            self.selected_bout = (chan, survivors[0]) if survivors else None
+        self.annotations.ensure_active_behaviors()
+        self.update_current_annotations()
+        self.newAnnotations = True
+        self.noteAnnotationsChanged(start, end)
+
+    @Slot(object)
+    def relabelSelectedBoutByName(self, name):
+        self.relabel_selected_bout(self.behaviors.get(name))
+
     def complete_pending_bout(self, beh=None, do_delete=False):
         """
         Finish the pending bout at the current time.
@@ -782,6 +1007,9 @@ class Bento(QObject):
 
     @Slot()
     def quit(self, event):
+        # last backup of unsaved edits before shutting down
+        self.autosave_timer.stop()
+        self.autosave_annotations()
         if event:
             print(f"User has clicked close (x) button on the MainWindow")
             self.quitting.emit()
@@ -940,6 +1168,7 @@ class Bento(QObject):
         elif isinstance(end, Timecode):
             end = end.float
         self.newAnnotations = True
+        self.autosave_dirty = True
         self.annotationsScene.sceneChanged(start, end)
 
     def deleteAnnotationsByName(self, behaviorName):
