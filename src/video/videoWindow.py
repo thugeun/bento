@@ -109,13 +109,29 @@ class VideoFrame(QFrame):
         self.ui.videoView.viewport().installEventFilter(self)
 
     def eventFilter(self, obj, event):
-        if (obj is self.ui.videoView.viewport() and event.type() == QEvent.MouseButtonPress
-                and event.button() == Qt.LeftButton):
-            annot = self.scene.annotAt(self.ui.videoView.mapToScene(event.pos()))
-            if annot is not None:
-                self.bento.selectBoutFromLabel(annot)
-                return True
+        if obj is self.ui.videoView.viewport():
+            if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+                annot = self.scene.annotAt(self.ui.videoView.mapToScene(event.pos()))
+                if annot is not None:
+                    self.bento.selectBoutFromLabel(annot)
+                    return True
+            elif event.type() == QEvent.Wheel:
+                # the graphics view would otherwise swallow the wheel for scrolling
+                if self.handle_wheel(event):
+                    return True
         return super().eventFilter(obj, event)
+
+    def handle_wheel(self, event):
+        """Same wheel behavior as the main window: scroll time, Alt = zoom timeline."""
+        if event.modifiers() & Qt.AltModifier:
+            return self.bento.mainWindow.ui.annotationsView.zoom_time_scale(event)
+        return self.bento.wheel_time_step(event)
+
+    def wheelEvent(self, event):
+        if self.handle_wheel(event):
+            event.accept()
+        else:
+            super().wheelEvent(event)
 
     def resizeEvent(self, event):
         self.ui.videoView.fitInView(self.pixmapItem, aspectRadioMode=Qt.KeepAspectRatio)
