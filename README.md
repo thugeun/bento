@@ -51,6 +51,9 @@ Typical keyboard-only edit: `Enter` (select) → `Enter` (go to nearer edge) →
 - **`Alt` + wheel** zooms the time axis around the current time (×1.25 per notch, 0.2–3000 px/s; tick spacing adapts).
 - **Arrow keys** always scroll time. Buttons and the channel combo box no longer take keyboard focus, so clicking a button does not turn the arrow keys into button-focus navigation.
 
+### Playback speed
+- The speed buttons and `Shift+Up` / `Shift+Down` change playback speed by ×1.5 per step (was ×2), clamped to 1/8x–8x. The middle button shows the current speed and resets to 1x when clicked. Constant `Player.SPEED_STEP` in `src/bento.py`.
+
 ### Behaviors window: Save now actually persists on Windows
 - Bug: `save()` wrote `os.linesep` into a text-mode file, producing `\r\r\n` on Windows. `load()` then failed on the resulting blank lines and Bento silently fell back to the default `color_profiles.txt`, so edited hot keys were lost on restart.
 - Fix: lines end with `\n`; blank lines are skipped on load.

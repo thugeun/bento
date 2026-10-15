@@ -35,6 +35,10 @@ AUTOSAVE_KEEP = 12                   # newest backups kept per trial
 
 class Player(QObject):
 
+    SPEED_STEP = 1.5          # playback speed multiplier per button press / Shift+Up/Down
+    SPEED_MIN, SPEED_MAX = 1. / 8., 8.
+    speedChanged = Signal(float)   # current speed relative to 1x
+
     def __init__(self, bento):
         super().__init__()
         self.playing = False
@@ -42,6 +46,16 @@ class Player(QObject):
         self.frame_interval = self.default_frame_interval = 1000./30.
         self.timer.setInterval(round(self.frame_interval))
         self.timer.timeout.connect(bento.incrementTime)
+
+    def speed(self):
+        return self.default_frame_interval / self.frame_interval
+
+    def set_speed(self, speed):
+        speed = min(self.SPEED_MAX, max(self.SPEED_MIN, speed))
+        self.frame_interval = self.default_frame_interval / speed
+        print(f"playback speed {speed:.3g}x (frame interval {self.frame_interval:.1f} ms)")
+        self.timer.setInterval(max(1, round(self.frame_interval)))
+        self.speedChanged.emit(speed)
 
     @Slot()
     def togglePlayer(self):
@@ -54,23 +68,17 @@ class Player(QObject):
 
     @Slot()
     def doubleFrameRate(self):
-        if self.frame_interval > self.default_frame_interval / 8.:
-            self.frame_interval /= 2.
-            print(f"setting frame interval to {round(self.frame_interval)}")
-            self.timer.setInterval(round(self.frame_interval))
+        """Faster by SPEED_STEP (name kept for existing callers)."""
+        self.set_speed(self.speed() * self.SPEED_STEP)
 
     @Slot()
     def halveFrameRate(self):
-        if self.frame_interval < self.default_frame_interval * 8.:
-            self.frame_interval *= 2.
-            print(f"setting frame interval to {round(self.frame_interval)}")
-            self.timer.setInterval(round(self.frame_interval))
+        """Slower by SPEED_STEP (name kept for existing callers)."""
+        self.set_speed(self.speed() / self.SPEED_STEP)
 
     @Slot()
     def resetFrameRate(self):
-        self.frame_interval = self.default_frame_interval
-        print(f"resetting frame interval to {round(self.frame_interval)}")
-        self.timer.setInterval(round(self.frame_interval))
+        self.set_speed(1.)
 
     @Slot()
     def quit(self):

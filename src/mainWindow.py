@@ -35,6 +35,11 @@ class MainWindow(QMainWindow):
         self.ui.halveFrameRateButton.clicked.connect(bento.player.halveFrameRate)
         self.ui.doubleFrameRateButton.clicked.connect(bento.player.doubleFrameRate)
         self.ui.oneXFrameRateButton.clicked.connect(bento.player.resetFrameRate)
+        step = bento.player.SPEED_STEP
+        self.ui.halveFrameRateButton.setText(f"/{step:g}")
+        self.ui.doubleFrameRateButton.setText(f"×{step:g}")
+        self.ui.oneXFrameRateButton.setToolTip("Reset playback speed to 1x")
+        bento.player.speedChanged.connect(self.updateSpeedLabel)
         self.ui.annotationsView.set_bento(bento)
         self.ui.annotationsView.setScene(bento.annotationsScene)
         bento.annotationsScene.sceneRectChanged.connect(self.ui.annotationsView.update)
@@ -169,6 +174,11 @@ class MainWindow(QMainWindow):
         elif event.key() == Qt.Key_Delete:
             self.bento.deleteSelectedBout()
         event.accept()
+
+    @Slot(float)
+    def updateSpeedLabel(self, speed):
+        # the 1x button doubles as the current-speed display
+        self.ui.oneXFrameRateButton.setText(f"{speed:.3g}x")
 
     @Slot(tc.Timecode)
     def updateTime(self, t):
