@@ -425,14 +425,15 @@ class Bento(QObject):
         return "".join(c if (c.isalnum() or c in "-.") else "-" for c in s).strip("-.")
 
     @Slot()
-    def autosave_annotations(self):
+    def autosave_annotations(self, force=False):
         """
         Write a timestamped backup of the annotations currently being edited.
-        Runs every AUTOSAVE_INTERVAL_MS (and at quit) when there are unsaved edits.
+        Runs every AUTOSAVE_INTERVAL_MS (and at quit) when there are unsaved edits,
+        or on demand (F5 / File > Backup Annotations Now) with force=True.
         Unlike Save Annotations it does not touch the database, does not ask,
         and keeps inactive bouts. Only the newest AUTOSAVE_KEEP files per trial are kept.
         """
-        if not self.autosave_dirty or self.trial_id is None:
+        if self.trial_id is None or (not self.autosave_dirty and not force):
             return None
         try:
             with self.db_sessionMaker() as db_sess:
@@ -476,6 +477,15 @@ class Bento(QObject):
             print(f"autosave failed: {e}")
             traceback.print_exc()
             return None
+
+    @Slot()
+    def backupAnnotationsNow(self):
+        """F5 / File menu: write a backup immediately, even without new edits."""
+        fn = self.autosave_annotations(force=True)
+        if fn:
+            self.mainWindow.statusBar().showMessage(f"Backup written: {fn}", 5000)
+        else:
+            self.mainWindow.statusBar().showMessage("Backup not written (no trial loaded?)", 5000)
 
     # File menu actions
 

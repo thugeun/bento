@@ -71,6 +71,10 @@ class MainWindow(QMainWindow):
         self.fileMenu = self.menuBar.addMenu("File")
         self.saveAnnotationsAction = self.fileMenu.addAction("Save Annotations...")
         self.saveAnnotationsAction.triggered.connect(bento.save_annotations)
+        self.backupAnnotationsAction = self.fileMenu.addAction("Backup Annotations Now")
+        self.backupAnnotationsAction.setShortcut("F5")
+        self.backupAnnotationsAction.setShortcutContext(Qt.ApplicationShortcut)   # also from video windows
+        self.backupAnnotationsAction.triggered.connect(bento.backupAnnotationsNow)
         self.fileMenuSeparatorAction = self.fileMenu.addSeparator()
         self.setInvestigatorAction = self.fileMenu.addAction("Set Investigator...")
         self.setInvestigatorAction.triggered.connect(bento.set_investigator)
