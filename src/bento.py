@@ -851,11 +851,19 @@ class Bento(QObject):
         if event.phase() not in (Qt.NoScrollPhase, Qt.ScrollUpdate, Qt.ScrollBegin):
             # ignore trackpad momentum/end phases
             return True
-        self._wheel_residual += d
-        notches = int(self._wheel_residual / 120)
-        if notches == 0:
-            return True
-        self._wheel_residual -= notches * 120
+        if event.phase() == Qt.NoScrollPhase:
+            # real mouse wheel: exactly one step per event, whatever the delta
+            # (some mice report 240+ per tick or split a tick into several events
+            # that would otherwise accumulate into extra frames)
+            self._wheel_residual = 0
+            notches = 1 if d > 0 else -1
+        else:
+            # trackpad: accumulate fine deltas into 120-unit notches
+            self._wheel_residual += d
+            notches = int(self._wheel_residual / 120)
+            if notches == 0:
+                return True
+            self._wheel_residual -= notches * 120
         mods = event.modifiers()
         if mods & Qt.ControlModifier:
             step = self.WHEEL_FRAMES_CTRL

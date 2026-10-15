@@ -47,7 +47,7 @@ Typical keyboard-only edit: `Enter` (select) → `Enter` (go to nearer edge) →
 - To recover, load the backup `.annot` as the trial's annotation file and save normally.
 
 ### Time navigation
-- **Mouse wheel** scrolls time anywhere over the main window or a video window: 1 frame per notch, `Shift` = 10 frames, `Ctrl` = 30 frames (constants `WHEEL_FRAMES*` in `src/bento.py`). Trackpad horizontal swipe still works.
+- **Mouse wheel** scrolls time anywhere over the main window or a video window: exactly 1 frame per wheel event regardless of the reported delta (trackpad deltas are accumulated into 120-unit notches), `Shift` = 10 frames, `Ctrl` = 30 frames (constants `WHEEL_FRAMES*` in `src/bento.py`). Trackpad horizontal swipe still works.
 - **`Alt` + wheel** zooms the time axis around the current time (×1.25 per notch, 0.2–3000 px/s; tick spacing adapts).
 - **Arrow keys** always scroll time. Buttons and the channel combo box no longer take keyboard focus, so clicking a button does not turn the arrow keys into button-focus navigation.
 
