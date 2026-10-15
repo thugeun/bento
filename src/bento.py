@@ -875,24 +875,27 @@ class Bento(QObject):
         """
         delta = event.angleDelta()
         d = delta.y() if delta.y() != 0 else -delta.x()
+        if os.environ.get("BENTO_WHEEL_DEBUG"):
+            from qtpy.QtGui import QCursor
+            w = QApplication.widgetAt(QCursor.pos())
+            print(f"[wheel] t={time.time():.3f} window={type(w.window()).__name__ if w else None} "
+                  f"widget={type(w).__name__ if w else None} angle=({delta.x()},{delta.y()}) "
+                  f"pixel=({event.pixelDelta().x()},{event.pixelDelta().y()}) phase={int(event.phase())} "
+                  f"src={int(event.source())} residual={self._wheel_residual}")
         if d == 0:
             return False
         if event.phase() not in (Qt.NoScrollPhase, Qt.ScrollUpdate, Qt.ScrollBegin):
             # ignore trackpad momentum/end phases
             return True
-        if event.phase() == Qt.NoScrollPhase:
-            # real mouse wheel: exactly one step per event, whatever the delta
-            # (some mice report 240+ per tick or split a tick into several events
-            # that would otherwise accumulate into extra frames)
-            self._wheel_residual = 0
-            notches = 1 if d > 0 else -1
-        else:
-            # trackpad: accumulate fine deltas into 120-unit notches
-            self._wheel_residual += d
-            notches = int(self._wheel_residual / 120)
-            if notches == 0:
-                return True
-            self._wheel_residual -= notches * 120
+        # accumulate into 120-unit notches: Qt coalesces queued wheel events
+        # (3 ticks can arrive as one event with angleDelta 360), and trackpads
+        # deliver fractional ticks. One notch = one step, no matter how the
+        # ticks are packaged.
+        self._wheel_residual += d
+        notches = int(self._wheel_residual / 120)
+        if notches == 0:
+            return True
+        self._wheel_residual -= notches * 120
         mods = event.modifiers()
         if mods & Qt.ControlModifier:
             step = self.WHEEL_FRAMES_CTRL

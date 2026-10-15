@@ -116,8 +116,11 @@ class VideoFrame(QFrame):
                     self.bento.selectBoutFromLabel(annot)
                     return True
             elif event.type() == QEvent.Wheel:
-                # the graphics view would otherwise swallow the wheel for scrolling
+                # the graphics view would otherwise swallow the wheel for scrolling.
+                # accept() matters: a filtered-but-unaccepted wheel event still
+                # propagates to the parent (this frame), which would step time twice.
                 if self.handle_wheel(event):
+                    event.accept()
                     return True
         return super().eventFilter(obj, event)
 
