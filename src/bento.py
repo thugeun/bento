@@ -440,8 +440,11 @@ class Bento(QObject):
                 trial = db_sess.query(Trial).filter(Trial.id == self.trial_id).one()
                 base_directory = None
                 parts = []   # investigator, date, mouse, trial number, stimulus
-                if self.session_id is not None:
-                    session = db_sess.query(Session).filter(Session.id == self.session_id).one()
+                # use the trial's own session: self.session_id is reset to None whenever
+                # the Trial window is reopened, even if the loaded trial is unchanged
+                session_id = trial.session_id if trial.session_id is not None else self.session_id
+                if session_id is not None:
+                    session = db_sess.query(Session).filter(Session.id == session_id).one()
                     base_directory = session.base_directory
                     investigator = db_sess.query(Investigator).filter(
                         Investigator.id == session.investigator_id).one_or_none()
