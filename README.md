@@ -43,7 +43,7 @@ Typical keyboard-only edit: `Enter` (select) → `Enter` (go to nearer edge) →
 - **Copy Channel Annotations** `Ctrl+C`, **Paste Annotations (same times)** `Ctrl+V`, **Paste Annotations at Current Time** `Ctrl+Shift+V` (the block is shifted so its first bout starts at the current time). Pasted bouts are independent copies, clamped to the annotation range, and merged with overlapping bouts of the same behavior.
 
 ### Automatic backups
-- Every 10 minutes (and at quit), unsaved edits are written to `<session base directory>/_bento_autosave/<investigator>_<YYYYMMDD>_<mouse nickname>_trial<N>[_<stimulus>]_autosave_<timestamp>.annot` (empty fields skipped; non-filename characters become `-`) (fallback `~/.bento/autosave/`). Nothing is asked, the database is not touched, inactive bouts are kept. The newest 12 backups per trial are kept. Constants `AUTOSAVE_*` in `src/bento.py`.
+- Every 10 minutes (and at quit), unsaved edits are written to `<session base directory>/_bento_autosave/<investigator>_<YYYYMMDD>_<mouse nickname>_trial<N>[_<stimulus>]_autosave_<timestamp>.annot` (empty fields skipped; non-filename characters become `-`) (if the session has no base directory, the folder of the trial's first video; never the home directory). Nothing is asked, the database is not touched, inactive bouts are kept. The newest 12 backups per trial are kept. Constants `AUTOSAVE_*` in `src/bento.py`.
 - `F5` (or File > Backup Annotations Now) writes a backup immediately, even with no new edits; the status bar shows the path.
 - To recover, load the backup `.annot` as the trial's annotation file and save normally.
 

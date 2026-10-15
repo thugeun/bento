@@ -405,18 +405,26 @@ class Bento(QObject):
                         self.newAnnotations = False
                     self.autosave_dirty = False
 
-    def autosave_dir(self, base_directory):
-        """Backup folder: <session base dir>/_bento_autosave, else ~/.bento/autosave."""
-        for d in (os.path.join(base_directory, AUTOSAVE_DIR) if base_directory else None,
-                  os.path.join(expanduser("~"), ".bento", "autosave")):
-            if not d:
-                continue
-            try:
-                os.makedirs(d, exist_ok=True)
-                return d
-            except OSError:
-                continue
-        return None
+    def autosave_dir(self, base_directory, video_files=()):
+        """
+        Backup folder: <session base dir>/_bento_autosave. If the session has no
+        base directory, the folder of the trial's first video is used instead.
+        No home-directory fallback: backups always stay next to the data.
+        """
+        if not base_directory:
+            for v in video_files:
+                if v:
+                    base_directory = os.path.dirname(v)
+                    break
+        if not base_directory:
+            return None
+        d = os.path.join(base_directory, AUTOSAVE_DIR)
+        try:
+            os.makedirs(d, exist_ok=True)
+            return d
+        except OSError as e:
+            print(f"autosave: cannot create {d}: {e}")
+            return None
 
     @staticmethod
     def _safe_name(s):
@@ -458,9 +466,9 @@ class Bento(QObject):
                 parts.append(trial.stimulus)
                 video_files = [video_data.file_path for video_data in trial.video_data]
                 stimulus = trial.stimulus
-            out_dir = self.autosave_dir(base_directory)
+            out_dir = self.autosave_dir(base_directory, video_files)
             if not out_dir:
-                print("autosave: no writable backup directory")
+                print("autosave: session has no base directory; backup not written")
                 return None
             prefix = "_".join(self._safe_name(p) for p in parts if p) + "_autosave_"
             fileName = os.path.join(out_dir, prefix + time.strftime("%Y%m%d_%H%M%S") + ".annot")
