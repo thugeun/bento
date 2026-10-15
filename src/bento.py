@@ -935,7 +935,7 @@ class Bento(QObject):
         else:
             key = chr(event.key())
             key = key.upper() if shift else key.lower()
-            behs = [beh for beh in self.behaviors.from_hot_key(key) if beh.is_active()]
+            behs = [beh for beh in (self.behaviors.from_hot_key(key) or []) if beh.is_active()]
             if not behs:
                 # that hot key is not defined; do nothing
                 print(f"processHotKey: didn't match an active behavior, so doing nothing")

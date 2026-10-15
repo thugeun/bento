@@ -160,16 +160,37 @@ class Behaviors(QAbstractTableModel):
                 line = f.readline()
                 continue
             # Format: "hot_key name r g b [active visible]"
-            # (active/visible are optional 0/1 flags for backward compatibility)
-            fields = line.strip().split(' ')
-            hot_key, name, r, g, b = fields[:5]
-            active = bool(int(fields[5])) if len(fields) > 5 else False
-            visible = bool(int(fields[6])) if len(fields) > 6 else True
-            if hot_key == '_':
-                hot_key = ''
-            self.add(Behavior(name, hot_key, QColor.fromRgbF(float(r), float(g), float(b)),
-                              active=active, visible=visible))
+            # (active/visible are optional 0/1 flags for backward compatibility).
+            # The name may contain spaces, so numeric fields are taken from the right.
+            try:
+                self.add(self.parse_line(line))
+            except Exception as e:
+                print(f"Behaviors.load: skipping unparseable line {line.strip()!r}: {e}")
             line = f.readline()
+
+    @staticmethod
+    def parse_line(line):
+        fields = line.strip().split()
+        if len(fields) < 5:
+            raise ValueError("expected at least 5 fields")
+        hot_key = fields[0]
+        rest = fields[1:]
+        nums = []
+        while rest and len(nums) < 5:
+            try:
+                float(rest[-1])
+            except ValueError:
+                break
+            nums.insert(0, rest.pop())
+        if len(nums) < 3 or not rest:
+            raise ValueError("expected name followed by r g b [active visible]")
+        name = ' '.join(rest)
+        r, g, b = (float(x) for x in nums[:3])
+        active = bool(int(float(nums[3]))) if len(nums) > 3 else False
+        visible = bool(int(float(nums[4]))) if len(nums) > 4 else True
+        if hot_key == '_':
+            hot_key = ''
+        return Behavior(name, hot_key, QColor.fromRgbF(r, g, b), active=active, visible=visible)
 
     def save(self, f):
         for beh in self._items:
@@ -257,8 +278,11 @@ class Behaviors(QAbstractTableModel):
         if key == 'hot_key' and value != hot_key:
             # disassociate this behavior from the hot_key
             # and associate with the new hot_key if not ''
-            if hot_key != '':
-                del(self._by_hot_key[hot_key])
+            if hot_key != '' and hot_key in self._by_hot_key:
+                # only this behavior leaves the old hot key; others sharing it stay
+                self._by_hot_key[hot_key] = [b for b in self._by_hot_key[hot_key] if b is not beh]
+                if not self._by_hot_key[hot_key]:
+                    del(self._by_hot_key[hot_key])
             if value != '':
                 if value not in self._by_hot_key.keys():
                     self._by_hot_key[value] = []
