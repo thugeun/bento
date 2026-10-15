@@ -58,6 +58,7 @@ Typical keyboard-only edit: `Enter` (select) → `Enter` (go to nearer edge) →
   (`hot_key name r g b active visible`). Old 5-field files still load.
 - Behavior names may contain spaces: numeric fields are parsed from the right, and an unparseable line is skipped with a console message instead of aborting the whole load (which used to fall back to the default profile and silently drop every edited behavior).
 - Changing a behavior's hot key no longer detaches other behaviors that shared the old key; an undefined hot key no longer raises.
+- Hot key `z` now works (the key range check excluded `Qt.Key_Z`, in both the main window and the neural window).
 - Profile location: `~/.bento/color_profiles.txt`.
 
 ---

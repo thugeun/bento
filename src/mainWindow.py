@@ -160,7 +160,7 @@ class MainWindow(QMainWindow):
             # otherwise Backspace keeps its delete-hot-key meaning below
             pass
         elif (not (event.modifiers() & ~Qt.ShiftModifier)  # not a modifier other than shift
-         and (event.key() in range(Qt.Key_A, Qt.Key_Z) or
+         and (event.key() in range(Qt.Key_A, Qt.Key_Z + 1) or
             event.key() == Qt.Key_Backspace or
             event.key() == Qt.Key_Escape)):
             self.bento.processHotKey(event)
