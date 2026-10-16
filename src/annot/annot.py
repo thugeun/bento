@@ -464,7 +464,7 @@ class Annotations(QObject):
         f.write("\n")
 
         f.write("List of annotations:\n")
-        for annot in self.annotation_names:
+        for annot in dict.fromkeys(self.annotation_names):   # unique, order kept
             f.write(annot + "\n")
         f.write("\n")
 
@@ -580,21 +580,22 @@ class Annotations(QObject):
         deleted_names = set()
         for chan_name in self.channel_names():
             deleted_names.update(self.channel(chan_name).delete_bouts_by_name(behavior_name))
-        for name in deleted_names:
-            self.annotation_names.remove(name)
+        self.annotation_names = [n for n in self.annotation_names if n not in deleted_names]
 
     def delete_inactive_bouts(self):
         deleted_names = set()
         for chan_name in self.channel_names():
             deleted_names.update(self.channel(chan_name).delete_inactive_bouts())
-        for name in deleted_names:
-            self.annotation_names.remove(name)
+        self.annotation_names = [n for n in self.annotation_names if n not in deleted_names]
 
     def ensure_and_activate_behaviors(self, toActivate):
         behaviorSetUpdated = False
         for behaviorName in toActivate:
             behaviorSetUpdated |= self._behaviors.addIfMissing(behaviorName)
-            self.annotation_names.append(behaviorName)
+            # files saved by earlier versions can list the same name many times:
+            # keep the list unique, otherwise it doubles on every load/save cycle
+            if behaviorName not in self.annotation_names:
+                self.annotation_names.append(behaviorName)
             self._behaviors.get(behaviorName).set_active(True)
         if behaviorSetUpdated:
             self.annotations_changed.emit()
