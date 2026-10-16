@@ -47,6 +47,9 @@ Typical keyboard-only edit: `Enter` (select) → `Enter` (go to nearer edge) →
 - `F5` (or File > Backup Annotations Now) writes a backup immediately, even with no new edits; the status bar shows the path.
 - To recover, load the backup `.annot` as the trial's annotation file and save normally.
 
+### Chained hot keys
+- Pressing a *different* behavior's hot key while a bout is pending no longer discards the pending bout: it is completed up to the current frame and the new behavior's pending bout starts on the next frame (the time moves there). A pending deletion (Backspace) is applied the same way. `Esc` is the way to cancel a pending bout. Reopened edges (double-click / Backspace on an edge) keep the old behavior: a different key restores the original bout.
+
 ### Multiple bout selection
 - `Ctrl+click` adds a bout to / removes it from the selection; `Ctrl+drag` on a channel row selects every bout in the dragged time range (extends an existing selection on that row); `Ctrl+A` selects every bout of the active channel. A selection lives in one channel; the last chosen bout is the one edge drag / Enter / Backspace act on.
 - `Delete` and relabel (right-click menu or its hot keys) apply to all selected bouts.

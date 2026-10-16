@@ -1092,10 +1092,33 @@ class Bento(QObject):
 
         # Is there a pending bout?  If so, complete the annotation activity
         if self.pending_bout:
-            self.complete_pending_bout(beh, do_delete)
+            if self.pending_bout.name() == beh.get_name() or self.reopened_bout:
+                self.complete_pending_bout(beh, do_delete)
+            else:
+                # a different hot key: close the pending bout at this frame and
+                # start the new behavior's pending bout on the next frame
+                # (Esc is the way to cancel a pending bout)
+                self.chain_pending_bout(beh)
         else:
             # Start a new annotation activity by saving a pending_bout
             self.pending_bout = Bout(self.current_time, self.current_time, beh)
+
+    def chain_pending_bout(self, beh):
+        """
+        Complete the pending bout (as its own behavior, or as a deletion) up to
+        the current frame, then anchor a new pending bout for beh on the frame
+        just past the completed one and move the time there.
+        """
+        pending_is_delete = self.pending_bout.behavior() is self.behaviors.getDeleteBehavior()
+        forward = self.pending_bout.start() <= self.current_time
+        self.complete_pending_bout(None, pending_is_delete)
+        fr = self.current_time.framerate
+        f = self.current_time.frames + (1 if forward else -1)
+        f = min(max(f, self.time_start.frames), self.time_end.frames)
+        anchor = Timecode(fr, frames=f)
+        self.set_time(anchor)
+        self.pending_bout = Bout(anchor, anchor, beh)
+        self.noteAnnotationsChanged()
 
     def relabel_selected_bout(self, beh):
         """
