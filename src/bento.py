@@ -355,7 +355,11 @@ class Bento(QObject):
             self.annotations.ensure_active_behaviors()
             self.annotations.delete_inactive_bouts()
             with self.db_sessionMaker() as db_sess:
-                base_directory = db_sess.query(Session).filter(Session.id == self.session_id).one().base_directory
+                # resolve the session through the trial: self.session_id is reset to
+                # None whenever the Trial window is reopened (original behavior)
+                trial = db_sess.query(Trial).filter(Trial.id == self.trial_id).one()
+                session_id = trial.session_id if trial.session_id is not None else self.session_id
+                base_directory = db_sess.query(Session).filter(Session.id == session_id).one().base_directory
             fileName, _ = QFileDialog.getSaveFileName(
                 self.mainWindow,
                 caption="Annotation File Name",
@@ -389,7 +393,7 @@ class Bento(QObject):
                         investigator = db_sess.query(Investigator).filter(Investigator.id == self.investigator_id).one()
                         # For unknown reasons, using self.annotations.time_start() behaves differently than self.time_start
                         newAnnot = AnnotationsData()
-                        newAnnot.file_path = relpath(fileName, base_directory)
+                        newAnnot.file_path = relpath(fileName, base_directory) if base_directory else fileName
                         newAnnot.sample_rate = self.annotations.sample_rate()
                         newAnnot.format = self.annotations.format()
                         newAnnot.start_time = self.time_start.float

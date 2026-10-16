@@ -47,6 +47,9 @@ Typical keyboard-only edit: `Enter` (select) → `Enter` (go to nearer edge) →
 - `F5` (or File > Backup Annotations Now) writes a backup immediately, even with no new edits; the status bar shows the path.
 - To recover, load the backup `.annot` as the trial's annotation file and save normally.
 
+### Fixes
+- File > Save Annotations no longer fails with `NoResultFound` after the Trial window has been reopened (the session is now resolved through the trial, since reopening the Trial window resets the current session id). Sessions without a base directory keep the absolute annotation path.
+
 ### Time navigation
 - **Mouse wheel** scrolls time anywhere over the main window or a video window: 1 frame per wheel notch (120 angle units, accumulated, so coalesced or fractional events still give one frame per tick), `Shift` = 10 frames, `Ctrl` = 30 frames (constants `WHEEL_FRAMES*` in `src/bento.py`). Trackpad horizontal swipe still works.
 - Wheel events over a video window are accepted in the viewport filter; previously each tick also propagated to the frame and stepped twice, so the video window scrolled at double speed. Set `BENTO_WHEEL_DEBUG=1` to log wheel events to the console.
