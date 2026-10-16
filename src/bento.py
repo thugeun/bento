@@ -436,6 +436,54 @@ class Bento(QObject):
         s = str(s).strip()
         return "".join(c if (c.isalnum() or c in "-.") else "-" for c in s).strip("-.")
 
+    def _trial_name_parts(self, db_sess):
+        """
+        [investigator, date, mouse, trialN, stimulus] of the loaded trial (None where
+        unknown), plus the session base directory, the trial's video paths and stimulus.
+        Shared by the autosave file name and the window titles.
+        """
+        trial = db_sess.query(Trial).filter(Trial.id == self.trial_id).one()
+        base_directory = None
+        parts = []
+        # use the trial's own session: self.session_id is reset to None whenever
+        # the Trial window is reopened, even if the loaded trial is unchanged
+        session_id = trial.session_id if trial.session_id is not None else self.session_id
+        if session_id is not None:
+            session = db_sess.query(Session).filter(Session.id == session_id).one()
+            base_directory = session.base_directory
+            investigator = db_sess.query(Investigator).filter(
+                Investigator.id == session.investigator_id).one_or_none()
+            animal = db_sess.query(Animal).filter(Animal.id == session.animal_id).one_or_none()
+            parts.append(investigator.user_name if investigator else None)
+            parts.append(session.experiment_date.strftime("%Y%m%d")
+                         if session.experiment_date else None)
+            parts.append(animal.nickname if animal else None)
+        parts.append(f"trial{trial.trial_num}" if trial.trial_num is not None
+                     else f"trialid{self.trial_id}")
+        parts.append(trial.stimulus)
+        video_files = [video_data.file_path for video_data in trial.video_data]
+        return parts, base_directory, video_files, trial.stimulus
+
+    def trial_label(self):
+        """Short description of the loaded trial for window titles, e.g. '20260923 m1 trial9 a10'."""
+        if self.trial_id is None:
+            return ""
+        try:
+            with self.db_sessionMaker() as db_sess:
+                parts, _, _, _ = self._trial_name_parts(db_sess)
+            return " ".join(str(p) for p in parts[1:] if p)   # skip the investigator
+        except Exception as e:
+            print(f"trial_label failed: {e}")
+            return f"trial id {self.trial_id}"
+
+    def updateWindowTitles(self, annot_path=None):
+        """Main window: Bento - <trial> - <annotation file>; video windows: <trial> - <video file>."""
+        label = self.trial_label()
+        annot = os.path.basename(annot_path) if annot_path else "new annotations"
+        self.mainWindow.setWindowTitle(" - ".join(p for p in ("Bento", label, annot) if p))
+        for widget in self.video_widgets:
+            widget.setTitlePrefix(label)
+
     @Slot()
     def autosave_annotations(self, force=False):
         """
@@ -449,27 +497,7 @@ class Bento(QObject):
             return None
         try:
             with self.db_sessionMaker() as db_sess:
-                trial = db_sess.query(Trial).filter(Trial.id == self.trial_id).one()
-                base_directory = None
-                parts = []   # investigator, date, mouse, trial number, stimulus
-                # use the trial's own session: self.session_id is reset to None whenever
-                # the Trial window is reopened, even if the loaded trial is unchanged
-                session_id = trial.session_id if trial.session_id is not None else self.session_id
-                if session_id is not None:
-                    session = db_sess.query(Session).filter(Session.id == session_id).one()
-                    base_directory = session.base_directory
-                    investigator = db_sess.query(Investigator).filter(
-                        Investigator.id == session.investigator_id).one_or_none()
-                    animal = db_sess.query(Animal).filter(Animal.id == session.animal_id).one_or_none()
-                    parts.append(investigator.user_name if investigator else None)
-                    parts.append(session.experiment_date.strftime("%Y%m%d")
-                                 if session.experiment_date else None)
-                    parts.append(animal.nickname if animal else None)
-                parts.append(f"trial{trial.trial_num}" if trial.trial_num is not None
-                             else f"trialid{self.trial_id}")
-                parts.append(trial.stimulus)
-                video_files = [video_data.file_path for video_data in trial.video_data]
-                stimulus = trial.stimulus
+                parts, base_directory, video_files, stimulus = self._trial_name_parts(db_sess)
             out_dir = self.autosave_dir(base_directory, video_files)
             if not out_dir:
                 print("autosave: session has no base directory; backup not written")
@@ -1211,6 +1239,7 @@ class Bento(QObject):
         # set the time to get all the new widgets in sync
         progress.setLabelText("Done")
         progress.setValue(progressCompleted)
+        self.updateWindowTitles(annot_path)
         self.set_time(self.time_start)
         return True
 

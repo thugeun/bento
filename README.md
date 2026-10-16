@@ -47,6 +47,9 @@ Typical keyboard-only edit: `Enter` (select) → `Enter` (go to nearer edge) →
 - `F5` (or File > Backup Annotations Now) writes a backup immediately, even with no new edits; the status bar shows the path.
 - To recover, load the backup `.annot` as the trial's annotation file and save normally.
 
+### Window titles
+- The main window title shows the loaded trial and annotation file (`Bento - <date> <mouse> trial<N> <stimulus> - <file>.annot`, or `new annotations`); each video window shows `<trial> - <video file name>`.
+
 ### Fixes
 - File > Save Annotations no longer fails with `NoResultFound` after the Trial window has been reopened (the session is now resolved through the trial, since reopening the Trial window resets the current session id). Sessions without a base directory keep the absolute annotation path.
 - The `List of annotations:` section of saved `.annot` files no longer grows with duplicate names on every load/save cycle (names were appended without checking on load; now kept unique, written unique, and removed fully on delete).

@@ -105,6 +105,8 @@ class VideoFrame(QFrame):
         self.pixmapItem = self.scene.addPixmap(self.pixmap)
         self.active_annots = []
         self.aspect_ratio = 1.
+        self.video_path = None
+        self.title_prefix = ""
         # clicks on the annotation labels drawn over the video select that bout
         self.ui.videoView.viewport().installEventFilter(self)
 
@@ -152,7 +154,18 @@ class VideoFrame(QFrame):
             # too tall
             print("too tall")
 
+    def setTitlePrefix(self, prefix):
+        """Window title: '<prefix> - <video file name>' (prefix = trial description)."""
+        self.title_prefix = prefix or ""
+        self.updateTitle()
+
+    def updateTitle(self):
+        name = os.path.basename(self.video_path) if self.video_path else "Video Viewer"
+        self.setWindowTitle(" - ".join(p for p in (self.title_prefix, name) if p))
+
     def load_video(self, fn):
+        self.video_path = fn
+        self.updateTitle()
         self.ext = os.path.basename(fn).rsplit('.',1)[-1]
         if self.ext=='mp4' or self.ext=='avi':
             self.reader = mp4Io.mp4Io_reader(fn)
