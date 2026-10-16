@@ -1,5 +1,21 @@
 # The **B**ehavior **E**nsemble and **N**eural **T**rajectory **O**bservatory (Bento)
 
+> **Unofficial, personally modified fork — not an official Bento release.**
+>
+> This repository and its releases (`v0.2.1-beta-edits*`) are a personal fork of the official Bento
+> published by the Anderson lab at Caltech: https://github.com/neuroethology/bento.
+> The code here is the official **v0.2.1-beta** release with changes made by one user (thugeun) for
+> their own annotation work; it is **not** developed, reviewed, endorsed or supported by the original
+> authors. For the official software, documentation, issues and citation, use the upstream repository.
+>
+> All copyright in Bento remains with its original authors. The modifications in this fork are
+> offered under the same terms as the upstream code; nothing here claims ownership of, or changes the
+> license of, the original work. If you use this fork in published work, cite the original Bento, not
+> this fork.
+>
+> What was changed, and why, is listed in the section below. Bugs in this fork should be reported
+> here, not to the upstream project.
+
 ## Changes in this branch (`v0.2.1-beta-edits`, thugeun fork)
 
 Based on v0.2.1-beta. Tested on Windows 11 with Python 3.6 / PySide2 5.15.2.
