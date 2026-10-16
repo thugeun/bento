@@ -48,7 +48,7 @@ Typical keyboard-only edit: `Enter` (select) → `Enter` (go to nearer edge) →
 - To recover, load the backup `.annot` as the trial's annotation file and save normally.
 
 ### Chained hot keys
-- Pressing a *different* behavior's hot key while a bout is pending no longer discards the pending bout: it is completed up to the current frame and the new behavior's pending bout starts on the next frame (the time moves there). A pending deletion (Backspace) is applied the same way, and so is a reopened edge (double-click / Backspace on an edge): the reopened bout is completed at the current frame and the new behavior's bout starts next to it. `Esc` is the way to cancel a pending bout (a reopened bout is put back).
+- Pressing a *different* behavior's hot key at frame F while a bout is pending no longer discards the pending bout: it is completed up to F-1 and the new behavior's pending bout starts at F (the time does not move). The same hot key completes the bout through F, as before. A pending deletion (Backspace) is applied the same way, and so is a reopened edge (double-click / Backspace on an edge): the reopened bout is completed at the current frame and the new behavior's bout starts next to it. `Esc` is the way to cancel a pending bout (a reopened bout is put back).
 
 ### Undo / redo
 - `Ctrl+Z` undoes the last bout edit, `Ctrl+Y` / `Ctrl+Shift+Z` redoes (Edit menu; also from the video windows). Covered: completing a bout, hot-key chaining, Backspace deletion, Delete, relabel, edge drag, reopened edges, paste, deleting a behavior's bouts. Not covered: selection, time, zoom, channel creation/rename, behavior profile edits, saving. Up to 100 steps (`UNDO_LIMIT`); the history is cleared when a trial is loaded. The status bar names the undone step.

@@ -1168,19 +1168,31 @@ class Bento(QObject):
 
     def chain_pending_bout(self, beh):
         """
-        Complete the pending bout (as its own behavior, or as a deletion) up to
-        the current frame, then anchor a new pending bout for beh on the frame
-        just past the completed one and move the time there.
+        A different hot key pressed at frame F while a bout is pending: the
+        pending bout (or deletion) is completed up to F-1 (F+1 when annotating
+        backwards) and a new pending bout for beh starts at F.  The time stays
+        at F.  A pending bout that has not yet covered a frame is just dropped.
         """
         pending_is_delete = self.pending_bout.behavior() is self.behaviors.getDeleteBehavior()
-        forward = self.pending_bout.start() <= self.current_time
-        self.complete_pending_bout(None, pending_is_delete)
-        fr = self.current_time.framerate
-        f = self.current_time.frames + (1 if forward else -1)
-        f = min(max(f, self.time_start.frames), self.time_end.frames)
-        anchor = Timecode(fr, frames=f)
-        self.set_time(anchor)
-        self.pending_bout = Bout(anchor, anchor, beh)
+        now = self.current_time
+        fr = now.framerate
+        forward = self.pending_bout.start() <= now
+        boundary = now.frames + (-1 if forward else 1)
+        if (forward and boundary < self.pending_bout.start().frames) or \
+           (not forward and boundary > self.pending_bout.start().frames):
+            # nothing to close (same frame as the pending start)
+            self.pending_bout = None
+            if self.reopened_bout:
+                reopened, self.reopened_bout = self.reopened_bout, None
+                self.restore_reopened_bout(reopened)
+        else:
+            self.current_time = Timecode(fr, frames=boundary)   # complete at F-1 without moving the view
+            try:
+                self.complete_pending_bout(None, pending_is_delete)
+            finally:
+                self.current_time = now
+        self.pending_bout = Bout(now, now, beh)
+        self.update_current_annotations()
         self.noteAnnotationsChanged()
 
     def relabel_selected_bout(self, beh):
