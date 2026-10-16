@@ -32,6 +32,7 @@ import sys, traceback, time, os, glob
 AUTOSAVE_INTERVAL_MS = 10 * 60 * 1000
 AUTOSAVE_DIR = "_bento_autosave"     # created under the session base directory
 AUTOSAVE_KEEP = 12                   # newest backups kept per trial
+UNDO_LIMIT = 100                      # bout-edit snapshots kept for Ctrl+Z
 
 class Player(QObject):
 
@@ -105,6 +106,8 @@ class Bento(QObject):
         self.edge_drag = None       # {'edge': 'start'|'end', 'orig': Timecode} while dragging a bout edge
         self.reopened_bout = None   # (chan_name, bout) taken out of its channel while re-annotated via pending_bout
         self.bout_clipboard = []    # [(start_frames, end_frames, behavior_name)] from copyChannelAnnotations
+        self.undo_stack = []        # [(label, snapshot)] snapshots taken before each bout edit
+        self.redo_stack = []
         self.bento_dir = expanduser("~") + sep + ".bento" + sep
         self.loadBehaviors()
         self.behaviorsDialog = BehaviorsDialog(self)
@@ -168,6 +171,8 @@ class Bento(QObject):
         self.annotationsScene.setSampleRate(sample_rate)
         self.annotations.clear_channels()
         self.active_channels.clear()
+        self.undo_stack.clear()
+        self.redo_stack.clear()
         self.mainWindow.clearChannelsCombo()
         loaded = False
         if isinstance(fn, str) and len(fn) > 0:
@@ -308,6 +313,7 @@ class Bento(QObject):
         chan = self.active_channels[0]
         fr = self.current_time.framerate
         offset = 0
+        self.push_undo(f"paste {len(self.bout_clipboard)} bout(s)")
         if shift_to_current_time:
             offset = self.current_time.frames - min(s for s, _, _ in self.bout_clipboard)
         lo, hi = None, None
@@ -533,6 +539,59 @@ class Bento(QObject):
             print(f"autosave failed: {e}")
             traceback.print_exc()
             return None
+
+    # Undo / redo: whole-annotation snapshots (bouts only; channels, behaviors,
+    # selection and the pending bout are not part of the history)
+
+    def snapshot_bouts(self):
+        return {chan: [(b.start().frames, b.end().frames, b.name())
+                       for b in self.annotations.channel(chan)]
+                for chan in self.annotations.channel_names()}
+
+    def push_undo(self, label):
+        self.undo_stack.append((label, self.snapshot_bouts()))
+        del self.undo_stack[:-UNDO_LIMIT]
+        self.redo_stack.clear()
+
+    def restore_bouts(self, snap):
+        fr = self.current_time.framerate
+        for chan in self.annotations.channel_names():
+            channel = self.annotations.channel(chan)
+            for b in list(channel):
+                channel.remove(b)
+            for s, e, name in snap.get(chan, []):
+                self.behaviors.addIfMissing(name)
+                beh = self.behaviors.get(name)
+                beh.set_active(True)
+                self.annotations.add_bout(Bout(Timecode(fr, frames=s), Timecode(fr, frames=e), beh), chan)
+        self.pending_bout = None
+        self.reopened_bout = None
+        self.edge_drag = None
+        self.selected_bout = None
+        self.annotations.ensure_active_behaviors()
+        self.update_current_annotations()
+        self.newAnnotations = True
+        self.noteAnnotationsChanged(self.time_start, self.time_end)
+
+    @Slot()
+    def undo(self):
+        if not self.undo_stack:
+            self.mainWindow.statusBar().showMessage("Nothing to undo", 3000)
+            return
+        label, snap = self.undo_stack.pop()
+        self.redo_stack.append((label, self.snapshot_bouts()))
+        self.restore_bouts(snap)
+        self.mainWindow.statusBar().showMessage(f"Undo: {label}", 3000)
+
+    @Slot()
+    def redo(self):
+        if not self.redo_stack:
+            self.mainWindow.statusBar().showMessage("Nothing to redo", 3000)
+            return
+        label, snap = self.redo_stack.pop()
+        self.undo_stack.append((label, self.snapshot_bouts()))
+        self.restore_bouts(snap)
+        self.mainWindow.statusBar().showMessage(f"Redo: {label}", 3000)
 
     @Slot()
     def backupAnnotationsNow(self):
@@ -789,6 +848,7 @@ class Bento(QObject):
         _, bout = self.selected_bout
         orig = bout.start() if edge == 'start' else bout.end()
         self.edge_drag = {'edge': edge, 'orig': orig}
+        self.push_undo(f"move {bout.name()} {edge}")
         return True
 
     def drag_bout_edge(self, new_t: Timecode):
@@ -847,9 +907,11 @@ class Bento(QObject):
         self.pending_bout = None
         self.selected_bout = None
         self.edge_drag = None
+        self.push_undo(f"reopen {bout.name()} edge")
         try:
             self.annotations.channel(chan).remove(bout)
         except ValueError:
+            self.undo_stack.pop()
             return
         self.reopened_bout = (chan, bout)
         anchor = bout.end() if edge == 'start' else bout.start()
@@ -940,6 +1002,7 @@ class Bento(QObject):
         """Delete every selected bout."""
         if not self._selection:
             return
+        self.push_undo(f"delete {len(self._selection)} bout(s)")
         lo, hi = None, None
         for chan, bout in self._selection:
             try:
@@ -1092,7 +1155,7 @@ class Bento(QObject):
 
         # Is there a pending bout?  If so, complete the annotation activity
         if self.pending_bout:
-            if self.pending_bout.name() == beh.get_name() or self.reopened_bout:
+            if self.pending_bout.name() == beh.get_name():
                 self.complete_pending_bout(beh, do_delete)
             else:
                 # a different hot key: close the pending bout at this frame and
@@ -1134,6 +1197,7 @@ class Bento(QObject):
         chan = targets[0][0]
         start = min(b.start() for _, b in targets)
         end = max(b.end() for _, b in targets)
+        self.push_undo(f"relabel {len(targets)} bout(s) as {beh.get_name()}")
         for _, bout in targets:
             bout.set_behavior(beh)
         beh.set_active(True)
@@ -1169,11 +1233,8 @@ class Bento(QObject):
         self.reopened_bout = None
         # a reopened bout completes into its own channel, not the active one
         chan = reopened[0] if reopened else self.active_channels[0]
-        if reopened and not do_delete and self.pending_bout.name() != beh.get_name():
-            # different behavior key pressed: abandon the edit, put the original back
-            self.restore_reopened_bout(reopened)
-            self.pending_bout = None
-            return
+        if not reopened:   # a reopen pushed its snapshot when the bout was lifted out
+            self.push_undo(("delete " if do_delete else "annotate ") + self.pending_bout.name())
         if self.pending_bout.start() > self.current_time:
             # swap start and end before completing
             self.pending_bout.set_end(self.pending_bout.start())
@@ -1371,6 +1432,7 @@ class Bento(QObject):
 
     def deleteAnnotationsByName(self, behaviorName):
         beh = self.behaviors.get(behaviorName)
+        self.push_undo(f"delete all {behaviorName}")
         for chan in self.annotations.channel_names():
             self.annotations.truncate_or_remove_bouts(beh, self.time_start, self.time_end, chan)
 

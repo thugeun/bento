@@ -3,6 +3,7 @@
 from mainWindow_ui import Ui_MainWindow
 import timecode as tc
 
+from qtpy.QtGui import QKeySequence
 from qtpy.QtCore import Qt, QEvent, Signal, Slot
 from qtpy.QtWidgets import QMainWindow, QMenuBar
 from db.trialWindow import TrialDockWidget
@@ -95,6 +96,16 @@ class MainWindow(QMainWindow):
         self.configAction.triggered.connect(bento.edit_config)
         self.createDBAction = self.dbMenu.addAction("Create Database")
         self.createDBAction.triggered.connect(bento.create_db)
+
+        self.editMenu = self.menuBar.addMenu("Edit")
+        self.undoAction = self.editMenu.addAction("Undo")
+        self.undoAction.setShortcut("Ctrl+Z")
+        self.undoAction.setShortcutContext(Qt.ApplicationShortcut)
+        self.undoAction.triggered.connect(bento.undo)
+        self.redoAction = self.editMenu.addAction("Redo")
+        self.redoAction.setShortcuts([QKeySequence("Ctrl+Y"), QKeySequence("Ctrl+Shift+Z")])
+        self.redoAction.setShortcutContext(Qt.ApplicationShortcut)
+        self.redoAction.triggered.connect(bento.redo)
 
         self.channelMenu = self.menuBar.addMenu("Channel")
         self.newChannelAction = self.channelMenu.addAction("New Channel...")
