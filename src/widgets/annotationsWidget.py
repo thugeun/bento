@@ -3,7 +3,7 @@
 """
 
 from qtpy.QtCore import Qt, QPointF, QRectF, Slot
-from qtpy.QtGui import (QBrush, QIcon, QPen, QKeyEvent, QMouseEvent, QPixmap,
+from qtpy.QtGui import (QBrush, QColor, QIcon, QPen, QKeyEvent, QMouseEvent, QPixmap,
     QTransform, QWheelEvent)
 from qtpy.QtWidgets import QGraphicsScene, QGraphicsView, QMenu
 from timecode import Timecode
@@ -64,6 +64,8 @@ class AnnotationsView(QGraphicsView):
         self.moved = False
         self.dragging_edge = None
         self.skip_release = False
+        self.band = None              # (row, t0, t1) while Ctrl+drag selects a time range
+        self.ctrl_press = False
         self.setMouseTracking(True)   # needed for the hover cursor near bout edges
         self.setInteractive(False)
         self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
@@ -207,7 +209,9 @@ class AnnotationsView(QGraphicsView):
         self.moved = False
         self.time_x = self.bento.get_time()
         self.dragging_edge = None
-        if event.button() == Qt.LeftButton:
+        self.band = None
+        self.ctrl_press = bool(event.modifiers() & Qt.ControlModifier)
+        if event.button() == Qt.LeftButton and not self.ctrl_press:
             edge = self._edge_under(event)
             if edge and self.bento.begin_edge_drag(edge):
                 self.dragging_edge = edge
@@ -223,6 +227,15 @@ class AnnotationsView(QGraphicsView):
             return
         if (event.pos() - self.press_pos).manhattanLength() > self.CLICK_SLOP_PX:
             self.moved = True
+        if self.ctrl_press:
+            # Ctrl+drag: rubber-band time range on the row where the press happened
+            if self.moved:
+                row = int(self.mapToScene(self.press_pos).y())
+                t0 = Timecode(self.time_x.framerate, start_seconds=max(0., self.mapToScene(self.press_pos).x()))
+                self.band = (row, t0, self._time_at(event))
+                self.viewport().update()
+            event.accept()
+            return
         if self.dragging_edge:
             # delta from the press point (scene units) keeps the drag stable
             # even if the view scrolls; the video follows on release
@@ -270,12 +283,23 @@ class AnnotationsView(QGraphicsView):
         if self.dragging_edge:
             self.bento.end_edge_drag()
             self.dragging_edge = None
+        elif event.button() == Qt.LeftButton and self.ctrl_press and self.band:
+            # Ctrl+drag: select every bout intersecting the band on that row
+            row, t0, t1 = self.band
+            self.band = None
+            self.bento.select_bouts_in_range(self.bento.channel_name_at_row(row), t0, t1, extend=True)
         elif event.button() == Qt.LeftButton and not self.moved:
-            # plain click: select the bout under the cursor (or clear selection)
             scene_pt = self.mapToScene(event.pos())
             chan = self.bento.channel_name_at_row(int(scene_pt.y()))
             bout = self.bento.bout_at(chan, self._time_at(event))
-            self.bento.select_bout(chan, bout)
+            if self.ctrl_press:
+                # Ctrl+click: add to / remove from the selection
+                self.bento.toggle_bout_selection(chan, bout)
+            else:
+                # plain click: select the bout under the cursor (or clear selection)
+                self.bento.select_bout(chan, bout)
+        self.band = None
+        self.ctrl_press = False
         event.accept()
 
     def contextMenuEvent(self, event):
@@ -315,27 +339,36 @@ class AnnotationsView(QGraphicsView):
         event.accept()
 
     def maybeDrawSelection(self, painter, rect):
+        if self.band:
+            # Ctrl+drag rubber band
+            row, t0, t1 = self.band
+            x0, x1 = sorted((t0.float, t1.float))
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(QColor(0, 0, 0, 60)))
+            painter.drawRect(QRectF(x0, float(row), x1 - x0, 1.))
         sel = self.bento.selected_bout
         if not sel:
             return
-        chan, bout = sel
-        row = self.bento.channel_row(chan)
-        if row is None:
-            return
-        sel_rect = QRectF(bout.start().float, float(row), bout.len().float, 1.)
-        # repaint the selected bout in its own color so it sits on top of any
-        # overlapping bouts in the same channel, then outline it
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QBrush(bout.color()))
-        painter.drawRect(sel_rect)
         pen = QPen(Qt.black)
         pen.setWidth(2)
         pen.setCosmetic(True)
-        painter.setPen(pen)
-        painter.setBrush(Qt.NoBrush)
-        painter.drawRect(sel_rect)
+        for chan, bout in self.bento.selected_bouts:
+            row = self.bento.channel_row(chan)
+            if row is None:
+                continue
+            sel_rect = QRectF(bout.start().float, float(row), bout.len().float, 1.)
+            # repaint the selected bout in its own color so it sits on top of any
+            # overlapping bouts in the same channel, then outline it
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(bout.color()))
+            painter.drawRect(sel_rect)
+            painter.setPen(pen)
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRect(sel_rect)
+        chan, bout = sel
+        row = self.bento.channel_row(chan)
         drag = self.bento.edge_drag
-        if drag:
+        if drag and row is not None:
             # hatch the region between the edge's original and current position
             cur = bout.start().float if drag['edge'] == 'start' else bout.end().float
             brush = QBrush(bout.color(), bs=Qt.DiagCrossPattern)

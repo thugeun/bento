@@ -47,6 +47,11 @@ Typical keyboard-only edit: `Enter` (select) → `Enter` (go to nearer edge) →
 - `F5` (or File > Backup Annotations Now) writes a backup immediately, even with no new edits; the status bar shows the path.
 - To recover, load the backup `.annot` as the trial's annotation file and save normally.
 
+### Multiple bout selection
+- `Ctrl+click` adds a bout to / removes it from the selection; `Ctrl+drag` on a channel row selects every bout in the dragged time range (extends an existing selection on that row); `Ctrl+A` selects every bout of the active channel. A selection lives in one channel; the last chosen bout is the one edge drag / Enter / Backspace act on.
+- `Delete` and relabel (right-click menu or its hot keys) apply to all selected bouts.
+- `Ctrl+C` copies the selected bouts (the whole active channel when nothing is selected). `Ctrl+V` pastes at the original times into another channel; into the channel the bouts came from it pastes at the current time (as `Ctrl+Shift+V`), so a single block can be duplicated: select, `Ctrl+C`, move, `Ctrl+V`.
+
 ### Window titles
 - The main window title shows the loaded trial and annotation file (`Bento - <date> <mouse> trial<N> <stimulus> - <file>.annot`, or `new annotations`); each video window shows `<trial> - <video file name>`.
 

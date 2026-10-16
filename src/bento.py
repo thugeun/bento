@@ -100,7 +100,8 @@ class Bento(QObject):
         self.current_annotations = [] # tuples ('ch_key', bout)
         self.behaviors = Behaviors()
         self.pending_bout = None
-        self.selected_bout = None   # (chan_name, bout) selected by mouse click in the annotations view
+        self._selection = []        # [(chan_name, bout)] selected in the annotations view; last = primary
+        self.selected_bout = None
         self.edge_drag = None       # {'edge': 'start'|'end', 'orig': Timecode} while dragging a bout edge
         self.reopened_bout = None   # (chan_name, bout) taken out of its channel while re-annotated via pending_bout
         self.bout_clipboard = []    # [(start_frames, end_frames, behavior_name)] from copyChannelAnnotations
@@ -252,8 +253,7 @@ class Bento(QObject):
         if old in scene_map:
             scene_map[new] = scene_map.pop(old)
         self.active_channels = [new if c == old else c for c in self.active_channels]
-        if self.selected_bout and self.selected_bout[0] == old:
-            self.selected_bout = (new, self.selected_bout[1])
+        self._selection = [((new if c == old else c), b) for c, b in self._selection]
         if self.reopened_bout and self.reopened_bout[0] == old:
             self.reopened_bout = (new, self.reopened_bout[1])
         self.mainWindow.renameChannelInCombo(old, new)
@@ -264,20 +264,33 @@ class Bento(QObject):
     @Slot()
     def copyChannelAnnotations(self):
         """
-        Copy every bout of the active channel to an internal clipboard
-        (frame numbers + behavior name, so pasting makes independent Bouts).
+        Ctrl+C: copy the selected bouts, or every bout of the active channel when
+        nothing is selected, to an internal clipboard (frame numbers + behavior
+        name, so pasting makes independent Bouts).
         """
-        if not self.active_channels:
+        if self._selection:
+            chan = self._selection[0][0]
+            bouts = sorted((b for _, b in self._selection), key=lambda b: b.start().float)
+            what = "selected"
+        elif self.active_channels:
+            chan = self.active_channels[0]
+            bouts = list(self.annotations.channel(chan))
+            what = "all"
+        else:
             return
-        chan = self.active_channels[0]
-        self.bout_clipboard = [
-            (bout.start().frames, bout.end().frames, bout.name())
-            for bout in self.annotations.channel(chan)]
-        print(f"Copied {len(self.bout_clipboard)} bouts from channel '{chan}'")
+        self.bout_clipboard = [(bout.start().frames, bout.end().frames, bout.name()) for bout in bouts]
+        self.clipboard_channel = chan
+        print(f"Copied {len(self.bout_clipboard)} {what} bouts from channel '{chan}'")
 
     @Slot()
     def pasteChannelAnnotations(self):
-        self._paste_bouts(shift_to_current_time=False)
+        """
+        Ctrl+V: paste at the original times into another channel; into the
+        channel the bouts were copied from, paste at the current time instead
+        (pasting a block over itself at the same times would change nothing).
+        """
+        same_channel = bool(self.active_channels) and getattr(self, 'clipboard_channel', None) == self.active_channels[0]
+        self._paste_bouts(shift_to_current_time=same_channel)
 
     @Slot()
     def pasteChannelAnnotationsAtCurrentTime(self):
@@ -639,7 +652,7 @@ class Bento(QObject):
             bout.name(),
             bout.color(),
             bout,
-            bool(sel) and sel[1] is bout)
+            self.is_selected(bout))
             for (c, bout) in self.current_annotations])
 
     # Bout selection / editing via the annotations view
@@ -675,9 +688,68 @@ class Bento(QObject):
             return None
         return min(bouts, key=lambda b: b.len().float)
 
+    # Selection: a list of (chan, bout) within one channel; selected_bout is the
+    # primary (last chosen) entry, which edge drag / reopen / Enter operate on.
+
+    @property
+    def selected_bout(self):
+        return self._selection[-1] if self._selection else None
+
+    @selected_bout.setter
+    def selected_bout(self, value):
+        self._selection = [value] if value else []
+
+    @property
+    def selected_bouts(self):
+        return list(self._selection)
+
+    def is_selected(self, bout):
+        return any(b is bout for _, b in self._selection)
+
     def select_bout(self, chan, bout):
         self.selected_bout = (chan, bout) if bout else None
         self.update_current_annotations()   # re-order labels: selected first
+        self.noteAnnotationsChanged()
+
+    def toggle_bout_selection(self, chan, bout):
+        """Ctrl+click: add/remove one bout; a bout on another channel starts a new selection."""
+        if bout is None:
+            return
+        hit = next((s for s in self._selection if s[1] is bout), None)
+        if hit:
+            self._selection.remove(hit)
+        elif self._selection and self._selection[0][0] != chan:
+            self._selection = [(chan, bout)]
+        else:
+            self._selection.append((chan, bout))
+        self.edge_drag = None
+        self.update_current_annotations()
+        self.noteAnnotationsChanged()
+
+    def select_bouts_in_range(self, chan, t0, t1, extend=False):
+        """Ctrl+drag: select the visible bouts of chan intersecting [t0, t1]."""
+        if chan is None or chan not in self.annotations.channel_names():
+            return
+        lo, hi = (t0, t1) if t0.float <= t1.float else (t1, t0)
+        bouts = [b for b in self.annotations.channel(chan).get_in_range(lo, hi) if b.is_visible()]
+        if extend and self._selection and self._selection[0][0] == chan:
+            bouts = [b for b in bouts if not self.is_selected(b)]
+            self._selection.extend((chan, b) for b in bouts)
+        else:
+            self._selection = [(chan, b) for b in bouts]
+        self.edge_drag = None
+        self.update_current_annotations()
+        self.noteAnnotationsChanged()
+
+    @Slot()
+    def selectAllBoutsInActiveChannel(self):
+        """Ctrl+A: select every visible bout of the active channel."""
+        if not self.active_channels:
+            return
+        chan = self.active_channels[0]
+        self._selection = [(chan, b) for b in self.annotations.channel(chan) if b.is_visible()]
+        self.edge_drag = None
+        self.update_current_annotations()
         self.noteAnnotationsChanged()
 
     @Slot(object)
@@ -690,7 +762,7 @@ class Bento(QObject):
         if not entry or len(entry) < 4:
             return
         chan, bout = entry[0], entry[3]
-        if self.selected_bout and self.selected_bout[1] is bout:
+        if self.selected_bout and self.selected_bout[1] is bout and len(self._selection) == 1:
             self.clear_selection()
             self.update_current_annotations()
             return
@@ -865,18 +937,22 @@ class Bento(QObject):
 
     @Slot()
     def deleteSelectedBout(self):
-        if not self.selected_bout:
+        """Delete every selected bout."""
+        if not self._selection:
             return
-        chan, bout = self.selected_bout
-        start, end = bout.start(), bout.end()
-        try:
-            self.annotations.channel(chan).remove(bout)
-        except ValueError:
-            pass
+        lo, hi = None, None
+        for chan, bout in self._selection:
+            try:
+                self.annotations.channel(chan).remove(bout)
+            except ValueError:
+                continue
+            lo = bout.start() if lo is None or bout.start() < lo else lo
+            hi = bout.end() if hi is None or bout.end() > hi else hi
         self.selected_bout = None
         self.edge_drag = None
         self.update_current_annotations()
-        self.noteAnnotationsChanged(start, end)
+        self.newAnnotations = True
+        self.noteAnnotationsChanged(lo, hi)
 
     def set_time(self, new_tc: Timecode):
         if not isinstance(new_tc, Timecode):
@@ -1027,18 +1103,27 @@ class Bento(QObject):
         menu).  Same-behavior neighbours are merged; if the bout is absorbed,
         the surviving bout becomes the selection.
         """
-        if not self.selected_bout or beh is None:
+        if not self._selection or beh is None:
             return
-        chan, bout = self.selected_bout
-        if bout.behavior() is beh:
+        targets = [(c, b) for c, b in self._selection if b.behavior() is not beh]
+        if not targets:
             return
-        start, end = bout.start(), bout.end()
-        bout.set_behavior(beh)
+        chan = targets[0][0]
+        start = min(b.start() for _, b in targets)
+        end = max(b.end() for _, b in targets)
+        for _, bout in targets:
+            bout.set_behavior(beh)
         beh.set_active(True)
         self.annotations.coalesce_bouts(start, end, chan)
-        if bout not in self.annotations.channel(chan).get_in_range(start, end):
-            survivors = [b for b in self.annotations.channel(chan).get_at(start) if b.name() == beh.get_name()]
-            self.selected_bout = (chan, survivors[0]) if survivors else None
+        # keep whichever bouts (or the bouts that absorbed them) now cover the edited spans
+        new_sel = []
+        for _, bout in self._selection:
+            survivors = [b for b in self.annotations.channel(chan).get_at(bout.start())
+                         if b.behavior() is bout.behavior()]
+            for b in survivors:
+                if not any(b is s for _, s in new_sel):
+                    new_sel.append((chan, b))
+        self._selection = new_sel
         self.annotations.ensure_active_behaviors()
         self.update_current_annotations()
         self.newAnnotations = True

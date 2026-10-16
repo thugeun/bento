@@ -102,10 +102,13 @@ class MainWindow(QMainWindow):
         self.renameChannelAction = self.channelMenu.addAction("Rename Active Channel...")
         self.renameChannelAction.triggered.connect(bento.renameActiveChannel)
         self.channelMenu.addSeparator()
-        self.copyChannelAction = self.channelMenu.addAction("Copy Channel Annotations")
+        self.selectAllBoutsAction = self.channelMenu.addAction("Select All Bouts in Active Channel")
+        self.selectAllBoutsAction.setShortcut("Ctrl+A")
+        self.selectAllBoutsAction.triggered.connect(bento.selectAllBoutsInActiveChannel)
+        self.copyChannelAction = self.channelMenu.addAction("Copy Selected (or All) Annotations")
         self.copyChannelAction.setShortcut("Ctrl+C")
         self.copyChannelAction.triggered.connect(bento.copyChannelAnnotations)
-        self.pasteChannelAction = self.channelMenu.addAction("Paste Annotations (same times)")
+        self.pasteChannelAction = self.channelMenu.addAction("Paste Annotations (same times; at current time if same channel)")
         self.pasteChannelAction.setShortcut("Ctrl+V")
         self.pasteChannelAction.triggered.connect(bento.pasteChannelAnnotations)
         self.pasteChannelAtTimeAction = self.channelMenu.addAction("Paste Annotations at Current Time")
@@ -139,6 +142,11 @@ class MainWindow(QMainWindow):
         if (event.modifiers() & Qt.ControlModifier) and Qt.Key_1 <= event.key() <= Qt.Key_9:
             # Ctrl+1..9: select channel by position
             self.bento.selectChannelByIndex(event.key() - Qt.Key_1)
+            event.accept()
+            return
+        if (event.modifiers() & Qt.ControlModifier) and event.key() == Qt.Key_A:
+            # Ctrl+A: select every bout of the active channel
+            self.bento.selectAllBoutsInActiveChannel()
             event.accept()
             return
         if event.key() == Qt.Key_Left:
