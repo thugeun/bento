@@ -74,6 +74,9 @@ Typical keyboard-only edit: `Enter` (select) → `Enter` (go to nearer edge) →
 - `Delete` and relabel (right-click menu or its hot keys) apply to all selected bouts.
 - `Ctrl+C` copies the selected bouts (the whole active channel when nothing is selected). `Ctrl+V` pastes at the original times into another channel; into the channel the bouts came from it pastes at the current time (as `Ctrl+Shift+V`), so a single block can be duplicated: select, `Ctrl+C`, move, `Ctrl+V`.
 
+### Splitting a bout
+- `Ctrl+Enter` (Edit > Split Bout at Time Line) cuts the selected bout(s) at the current time into `[start, t-1]` and `[t, end]`; with no selection, the bout under the time line on the active channel is cut. The right-hand halves become the selection, the time does not move. Nothing happens on a bout's first frame or outside a bout (status-bar message). Right-click menu: "Split bout here" cuts at the clicked frame. One undo step.
+
 ### Window titles
 - The main window title shows the loaded trial and annotation file (`Bento - <date> <mouse> trial<N> <stimulus> - <file>.annot`, or `new annotations`); each video window shows `<trial> - <video file name>`.
 

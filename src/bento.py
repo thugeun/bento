@@ -1017,6 +1017,58 @@ class Bento(QObject):
         self.newAnnotations = True
         self.noteAnnotationsChanged(lo, hi)
 
+    def split_bouts_at(self, targets, t):
+        """
+        Split each (chan, bout) in targets at time t into [start, t-1] and
+        [t, end] (bouts not strictly containing t are left alone).  The right
+        halves become the selection.  Returns the number of bouts split.
+        """
+        fr = t.framerate
+        before = Timecode(fr, frames=t.frames - 1)
+        todo = [(c, b) for c, b in targets if b.start() < t <= b.end()]
+        if not todo:
+            return 0
+        self.push_undo(f"split {len(todo)} bout(s)")
+        new_sel = []
+        lo, hi = None, None
+        for chan, bout in todo:
+            try:
+                self.annotations.channel(chan).remove(bout)
+            except ValueError:
+                continue
+            beh = bout.behavior()
+            self.annotations.add_bout(Bout(bout.start(), before, beh), chan)
+            right = Bout(t, bout.end(), beh)
+            self.annotations.add_bout(right, chan)
+            new_sel.append((chan, right))
+            lo = bout.start() if lo is None or bout.start() < lo else lo
+            hi = bout.end() if hi is None or bout.end() > hi else hi
+        self._selection = new_sel
+        self.edge_drag = None
+        self.update_current_annotations()
+        self.newAnnotations = True
+        self.noteAnnotationsChanged(lo, hi)
+        return len(new_sel)
+
+    @Slot()
+    def splitSelectedBoutAtCursor(self):
+        """
+        Ctrl+Enter / Edit > Split Bout: cut the selected bout(s) at the current
+        time; with no selection, the bout under the time line on the active channel.
+        """
+        t = self.current_time
+        targets = self.selected_bouts
+        if not targets and self.active_channels:
+            bout = self.bout_at(self.active_channels[0], t)
+            if bout is not None:
+                targets = [(self.active_channels[0], bout)]
+        n = self.split_bouts_at(targets, t)
+        if n == 0:
+            self.mainWindow.statusBar().showMessage(
+                "Nothing to split: put the time line inside a bout (not on its first frame)", 3000)
+        else:
+            self.mainWindow.statusBar().showMessage(f"Split {n} bout(s) at frame {t.frames}", 3000)
+
     def set_time(self, new_tc: Timecode):
         if not isinstance(new_tc, Timecode):
             new_tc = Timecode('30.0', new_tc)

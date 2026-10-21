@@ -106,6 +106,11 @@ class MainWindow(QMainWindow):
         self.redoAction.setShortcuts([QKeySequence("Ctrl+Y"), QKeySequence("Ctrl+Shift+Z")])
         self.redoAction.setShortcutContext(Qt.ApplicationShortcut)
         self.redoAction.triggered.connect(bento.redo)
+        self.editMenu.addSeparator()
+        self.splitAction = self.editMenu.addAction("Split Bout at Time Line")
+        self.splitAction.setShortcuts([QKeySequence("Ctrl+Return"), QKeySequence("Ctrl+Enter")])
+        self.splitAction.setShortcutContext(Qt.ApplicationShortcut)
+        self.splitAction.triggered.connect(bento.splitSelectedBoutAtCursor)
 
         self.channelMenu = self.menuBar.addMenu("Channel")
         self.newChannelAction = self.channelMenu.addAction("New Channel...")

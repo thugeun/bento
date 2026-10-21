@@ -331,6 +331,11 @@ class AnnotationsView(QGraphicsView):
             if hk:
                 menu.bind_hot_key(hk, act)
         menu.addSeparator()
+        t_click = Timecode(self.time_x.framerate, start_seconds=max(0., scene_pt.x()))
+        split_act = menu.addAction("Split bout here")
+        split_act.setEnabled(bout.start() < t_click <= bout.end())
+        split_act.triggered.connect(
+            lambda checked=False, c=chan, b=bout, t=t_click: self.bento.split_bouts_at([(c, b)], t))
         del_act = menu.addAction("Delete bout")
         del_act.triggered.connect(self.bento.deleteSelectedBout)
         menu.bind_hot_key(Qt.Key_Delete, del_act)
