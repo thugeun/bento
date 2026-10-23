@@ -109,6 +109,10 @@ class VideoFrame(QFrame):
         self.title_prefix = ""
         # clicks on the annotation labels drawn over the video select that bout
         self.ui.videoView.viewport().installEventFilter(self)
+        # keep keyboard focus on the frame so every key reaches keyPressEvent
+        self.ui.showPoseCheckBox.setFocusPolicy(Qt.NoFocus)
+        self.ui.videoView.setFocusPolicy(Qt.NoFocus)
+        self.setFocusPolicy(Qt.StrongFocus)
 
     def eventFilter(self, obj, event):
         if obj is self.ui.videoView.viewport():
@@ -197,25 +201,11 @@ class VideoFrame(QFrame):
         return float(self.reader.header['numFrames']) / float(self.reader.header['fps'])
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Left:
-            if event.modifiers() & Qt.ShiftModifier:
-                self.bento.skipBackward()
-            else:
-                self.bento.decrementTime()
-        elif event.key() == Qt.Key_Right:
-            if event.modifiers() & Qt.ShiftModifier:
-                self.bento.skipForward()
-            else:
-                self.bento.incrementTime()
-        elif event.key() == Qt.Key_Up:
-            self.bento.toPrevEvent()
-        elif event.key() == Qt.Key_Down:
-            self.bento.toNextEvent()
-        elif event.key() == Qt.Key_Space and self.bento.player:
-            self.bento.player.togglePlayer()
-        else:
-            return
-        event.accept()
+        """
+        Every key works the same as in the main window (hot keys, Enter, Delete,
+        Backspace, Esc, arrows, Space, Ctrl+1..9, Ctrl+A): delegate to it.
+        """
+        self.bento.mainWindow.keyPressEvent(event)
 
     @Slot(Timecode)
     def updateFrame(self, t):

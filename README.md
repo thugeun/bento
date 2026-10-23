@@ -77,6 +77,9 @@ Typical keyboard-only edit: `Enter` (select) → `Enter` (go to nearer edge) →
 ### Splitting a bout
 - `Ctrl+Enter` (Edit > Split Bout at Time Line) cuts the selected bout(s) at the current time into `[start, t-1]` and `[t, end]`; with no selection, the bout under the time line on the active channel is cut. The right-hand halves become the selection, the time does not move. Nothing happens on a bout's first frame or outside a bout (status-bar message). Right-click menu: "Split bout here" cuts at the clicked frame. One undo step.
 
+### Video windows take every key
+- A video window handles the keyboard exactly like the main window (behavior hot keys, `Enter`, `Delete`, `Backspace`, `Esc`, arrows, `Space`, `Ctrl+1`..`9`, `Ctrl+A`), so annotating with only the video window focused works. Upstream only passed arrows and Space.
+
 ### Window titles
 - The main window title shows the loaded trial and annotation file (`Bento - <date> <mouse> trial<N> <stimulus> - <file>.annot`, or `new annotations`); each video window shows `<trial> - <video file name>`.
 
