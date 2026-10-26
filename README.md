@@ -80,6 +80,9 @@ Typical keyboard-only edit: `Enter` (select) → `Enter` (go to nearer edge) →
 ### Video windows take every key
 - A video window handles the keyboard exactly like the main window (behavior hot keys, `Enter`, `Delete`, `Backspace`, `Esc`, arrows, `Space`, `Ctrl+1`..`9`, `Ctrl+A`), so annotating with only the video window focused works. Upstream only passed arrows and Space.
 
+### Pending bout drawn on its own channel
+- The hatched pending bout (hot key pressed, bout not yet closed) is drawn only on the row of the channel it will land in: the active channel, or a reopened bout's own channel. Upstream hatched the full height of the annotations view.
+
 ### Window titles
 - The main window title shows the loaded trial and annotation file (`Bento - <date> <mouse> trial<N> <stimulus> - <file>.annot`, or `new annotations`); each video window shows `<trial> - <video file name>`.
 

@@ -407,7 +407,13 @@ class AnnotationsView(QGraphicsView):
         brush.setTransform(brushTransform)
         painter.setBrush(brush)
         painter.setPen(Qt.NoPen)
-        painter.drawRect(QRectF(QPointF(bout.start().float, rect.top()), QPointF(now, rect.bottom())))
+        # only the channel the bout will land in: a reopened bout's own channel,
+        # otherwise the active channel (whole height if that is unknown)
+        reopened = self.bento.reopened_bout
+        chan = reopened[0] if reopened else (self.bento.active_channels[0] if self.bento.active_channels else None)
+        row = self.bento.channel_row(chan) if chan is not None else None
+        top, bottom = (float(row), float(row) + 1.) if row is not None else (rect.top(), rect.bottom())
+        painter.drawRect(QRectF(QPointF(bout.start().float, top), QPointF(now, bottom)))
         painter.setBrush(Qt.NoBrush)
 
     def drawForeground(self, painter, rect):
