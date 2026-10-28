@@ -83,6 +83,9 @@ Typical keyboard-only edit: `Enter` (select) → `Enter` (go to nearer edge) →
 ### Pending bout drawn on its own channel
 - The hatched pending bout (hot key pressed, bout not yet closed) is drawn only on the row of the channel it will land in: the active channel, or a reopened bout's own channel. Upstream hatched the full height of the annotations view.
 
+### Resizable main window
+- The main window can be resized (upstream fixed it at 460x328). Extra height goes to the annotations view, whose channel rows rescale to fill it; the time scale, labels and button rows are unchanged. The window geometry is remembered between runs (QSettings `bento/bento`).
+
 ### Window titles
 - The main window title shows the loaded trial and annotation file (`Bento - <date> <mouse> trial<N> <stimulus> - <file>.annot`, or `new annotations`); each video window shows `<trial> - <video file name>`.
 

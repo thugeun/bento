@@ -117,9 +117,20 @@ class AnnotationsView(QGraphicsView):
 
     @Slot(float)
     def setVScaleAndShow(self, v_factor):
+        self.v_factor = v_factor
         self.scale_v = self.height()/v_factor
         self.setVScale(self.scale_v)
         self.show()
+
+    def resizeEvent(self, event):
+        # keep every channel row filling the view's height when the window is
+        # resized (the time scale is untouched), and stay centered on the time
+        super().resizeEvent(event)
+        if getattr(self, 'v_factor', None):
+            self.scale_v = self.height() / self.v_factor
+            self.setVScale(self.scale_v)
+        if self.bento is not None:
+            self.updatePosition(self.bento.get_time())
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         # Override the widget behavior on key strokes

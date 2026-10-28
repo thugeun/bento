@@ -4,7 +4,7 @@ from mainWindow_ui import Ui_MainWindow
 import timecode as tc
 
 from qtpy.QtGui import QKeySequence
-from qtpy.QtCore import Qt, QEvent, Signal, Slot
+from qtpy.QtCore import QSettings, Qt, QEvent, Signal, Slot
 from qtpy.QtWidgets import QMainWindow, QMenuBar
 from db.trialWindow import TrialDockWidget
 
@@ -19,6 +19,22 @@ class MainWindow(QMainWindow):
         self.flag = "close"
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
+        # The .ui pins the window to 460x328 (Fixed policy, max size).  Make it
+        # resizable: extra height goes to the annotations view only, the
+        # labels and button rows keep their natural height.
+        from qtpy.QtWidgets import QSizePolicy, QWidget
+        self.setMaximumSize(QWidget().maximumSize())
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        self.ui.centralwidget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        self.ui.annotationsView.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        lay = self.ui.verticalLayout
+        for i in range(lay.count()):
+            item = lay.itemAt(i)
+            lay.setStretch(i, 1 if item.widget() is self.ui.annotationsView else 0)
+        self._settings = QSettings("bento", "bento")
+        geom = self._settings.value("mainWindow/geometry")
+        if geom is not None:
+            self.restoreGeometry(geom)
         self.ui.stepButton.clicked.connect(bento.incrementTime)
         self.ui.backButton.clicked.connect(bento.decrementTime)
         self.ui.ffButton.clicked.connect(bento.skipForward)
@@ -136,6 +152,7 @@ class MainWindow(QMainWindow):
         self.toggleBehaviorVisibilityAction.triggered.connect(bento.toggleBehaviorVisibility)
 
     def closeEvent(self, event):
+        self._settings.setValue("mainWindow/geometry", self.saveGeometry())
         if event.type()==QEvent.Type.Close and self.flag=="close":
             self.bento.quit(event)
         else:
