@@ -49,6 +49,14 @@ class MainWindow(QMainWindow):
 
         self.ui.trialPushButton.clicked.connect(self.selectTrial)
         self.ui.playButton.clicked.connect(bento.player.togglePlayer)
+        self.ui.playButton.setText("Play >")
+        self.ui.playButton.setToolTip("Play forward / stop (Space)")
+        from qtpy.QtWidgets import QPushButton
+        self.ui.reverseButton = QPushButton("< Rev", self.ui.centralwidget)
+        self.ui.reverseButton.setToolTip("Play backwards / stop (Shift+Space)")
+        self.ui.controlButtonLayout.insertWidget(
+            self.ui.controlButtonLayout.indexOf(self.ui.playButton), self.ui.reverseButton)
+        self.ui.reverseButton.clicked.connect(bento.player.toggleReverse)
         self.ui.halveFrameRateButton.clicked.connect(bento.player.halveFrameRate)
         self.ui.doubleFrameRateButton.clicked.connect(bento.player.doubleFrameRate)
         self.ui.oneXFrameRateButton.clicked.connect(bento.player.resetFrameRate)
@@ -215,7 +223,10 @@ class MainWindow(QMainWindow):
             event.key() == Qt.Key_Escape)):
             self.bento.processHotKey(event)
         elif event.key() == Qt.Key_Space and self.bento.player:
-            self.bento.player.togglePlayer()
+            if event.modifiers() & Qt.ShiftModifier:
+                self.bento.player.toggleReverse()
+            else:
+                self.bento.player.togglePlayer()
         elif event.key() == Qt.Key_Delete:
             self.bento.deleteSelectedBout()
         event.accept()

@@ -42,11 +42,43 @@ class Player(QObject):
 
     def __init__(self, bento):
         super().__init__()
+        self.bento = bento
         self.playing = False
+        self.direction = 1          # +1 forward, -1 reverse
+        self.suspended = False      # playing, but paused while the mouse scrubs the timeline
         self.timer = QTimer()
         self.frame_interval = self.default_frame_interval = 1000./30.
         self.timer.setInterval(round(self.frame_interval))
-        self.timer.timeout.connect(bento.incrementTime)
+        self.timer.timeout.connect(self._tick)
+
+    def _tick(self):
+        if self.direction > 0:
+            self.bento.incrementTime()
+        else:
+            self.bento.decrementTime()
+
+    def play(self, direction):
+        """Start playing in direction (+1 / -1); switches direction if already playing."""
+        self.direction = 1 if direction >= 0 else -1
+        self.suspended = False
+        self.playing = True
+        self.timer.start()
+
+    def stop(self):
+        self.playing = False
+        self.suspended = False
+        self.timer.stop()
+
+    def suspend(self):
+        """Mouse took over the time line: hold playback until resume()."""
+        if self.playing and not self.suspended:
+            self.suspended = True
+            self.timer.stop()
+
+    def resume(self):
+        if self.playing and self.suspended:
+            self.suspended = False
+            self.timer.start()
 
     def speed(self):
         return self.default_frame_interval / self.frame_interval
@@ -60,12 +92,19 @@ class Player(QObject):
 
     @Slot()
     def togglePlayer(self):
-        # print(f"Setting playing to {not self.playing}")
-        self.playing = not self.playing
-        if self.playing:
-            self.timer.start()
+        """Space / Play button: play forward; stop if already playing forward."""
+        if self.playing and self.direction > 0:
+            self.stop()
         else:
-            self.timer.stop()
+            self.play(1)
+
+    @Slot()
+    def toggleReverse(self):
+        """Shift+Space / Rev button: play backwards; stop if already playing backwards."""
+        if self.playing and self.direction < 0:
+            self.stop()
+        else:
+            self.play(-1)
 
     @Slot()
     def doubleFrameRate(self):

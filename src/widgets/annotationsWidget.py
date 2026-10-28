@@ -222,6 +222,9 @@ class AnnotationsView(QGraphicsView):
         self.dragging_edge = None
         self.band = None
         self.ctrl_press = bool(event.modifiers() & Qt.ControlModifier)
+        if event.button() == Qt.LeftButton and self.bento.player:
+            # the mouse owns the time line until it is released; playback resumes then
+            self.bento.player.suspend()
         if event.button() == Qt.LeftButton and not self.ctrl_press:
             edge = self._edge_under(event)
             if edge and self.bento.begin_edge_drag(edge):
@@ -289,6 +292,8 @@ class AnnotationsView(QGraphicsView):
             # release that follows a double-click: don't re-select
             self.skip_release = False
             self.dragging_edge = None
+            if self.bento.player:
+                self.bento.player.resume()
             event.accept()
             return
         if self.dragging_edge:
@@ -311,6 +316,8 @@ class AnnotationsView(QGraphicsView):
                 self.bento.select_bout(chan, bout)
         self.band = None
         self.ctrl_press = False
+        if event.button() == Qt.LeftButton and self.bento.player:
+            self.bento.player.resume()
         event.accept()
 
     def contextMenuEvent(self, event):

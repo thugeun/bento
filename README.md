@@ -99,6 +99,10 @@ Typical keyboard-only edit: `Enter` (select) → `Enter` (go to nearer edge) →
 - **`Alt` + wheel** zooms the time axis around the current time (×1.25 per notch, 0.2–3000 px/s; tick spacing adapts).
 - **Arrow keys** always scroll time. Buttons and the channel combo box no longer take keyboard focus, so clicking a button does not turn the arrow keys into button-focus navigation.
 
+### Reverse playback, mouse overrides playback
+- `Shift+Space` or the new `< Rev` button plays backwards at the current speed; `Space` / `Play >` plays forward. Pressing the other direction's key while playing switches direction, the same one stops.
+- While the left mouse button is held on the annotations view (scrubbing, edge drag, Ctrl+drag) a running playback is held; it resumes, in the same direction, when the button is released.
+
 ### Playback speed
 - The speed buttons and `Shift+Up` / `Shift+Down` change playback speed by ×1.5 per step (was ×2), clamped to 1/8x–8x. The middle button shows the current speed and resets to 1x when clicked. Constant `Player.SPEED_STEP` in `src/bento.py`.
 
