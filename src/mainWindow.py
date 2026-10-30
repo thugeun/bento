@@ -61,8 +61,10 @@ class MainWindow(QMainWindow):
         self.ui.doubleFrameRateButton.clicked.connect(bento.player.doubleFrameRate)
         self.ui.oneXFrameRateButton.clicked.connect(bento.player.resetFrameRate)
         step = bento.player.SPEED_STEP
-        self.ui.halveFrameRateButton.setText(f"/{step:g}")
-        self.ui.doubleFrameRateButton.setText(f"×{step:g}")
+        self.ui.halveFrameRateButton.setText(f"-{step:g}x")
+        self.ui.halveFrameRateButton.setToolTip("Slower (- key, Shift+Down)")
+        self.ui.doubleFrameRateButton.setText(f"+{step:g}x")
+        self.ui.doubleFrameRateButton.setToolTip("Faster (+ key, Shift+Up)")
         self.ui.oneXFrameRateButton.setToolTip("Reset playback speed to 1x")
         bento.player.speedChanged.connect(self.updateSpeedLabel)
         self.ui.annotationsView.set_bento(bento)
@@ -190,7 +192,12 @@ class MainWindow(QMainWindow):
             self.bento.selectAllBoutsInActiveChannel()
             event.accept()
             return
-        if event.key() == Qt.Key_Left:
+        if event.key() in (Qt.Key_Plus, Qt.Key_Equal) and self.bento.player:
+            # + (also = without Shift, keypad +): faster
+            self.bento.player.doubleFrameRate()
+        elif event.key() in (Qt.Key_Minus, Qt.Key_Underscore) and self.bento.player:
+            self.bento.player.halveFrameRate()
+        elif event.key() == Qt.Key_Left:
             if event.modifiers() & Qt.ShiftModifier:
                 self.bento.skipBackward()
             else:

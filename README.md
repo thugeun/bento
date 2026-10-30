@@ -104,7 +104,7 @@ Typical keyboard-only edit: `Enter` (select) → `Enter` (go to nearer edge) →
 - While the left mouse button is held on the annotations view (scrubbing, edge drag, Ctrl+drag) a running playback is held; it resumes, in the same direction, when the button is released.
 
 ### Playback speed
-- The speed buttons and `Shift+Up` / `Shift+Down` change playback speed by ×1.5 per step (was ×2), clamped to 1/8x–8x. The middle button shows the current speed and resets to 1x when clicked. Constant `Player.SPEED_STEP` in `src/bento.py`.
+- Speed changes in steps of 0.5x (0.5x .. 8x) with the `-0.5x` / `+0.5x` buttons, the `-` / `+` keys (also `=`, keypad) or `Shift+Down` / `Shift+Up`; the middle button shows the current speed and resets to 1x. Upstream doubled/halved.
 
 ### Behaviors window: Save now actually persists on Windows
 - Bug: `save()` wrote `os.linesep` into a text-mode file, producing `\r\r\n` on Windows. `load()` then failed on the resulting blank lines and Bento silently fell back to the default `color_profiles.txt`, so edited hot keys were lost on restart.

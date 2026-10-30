@@ -36,8 +36,8 @@ UNDO_LIMIT = 100                      # bout-edit snapshots kept for Ctrl+Z
 
 class Player(QObject):
 
-    SPEED_STEP = 1.5          # playback speed multiplier per button press / Shift+Up/Down
-    SPEED_MIN, SPEED_MAX = 1. / 8., 8.
+    SPEED_STEP = 0.5          # playback speed added/removed per button press, +/- key, Shift+Up/Down
+    SPEED_MIN, SPEED_MAX = 0.5, 8.
     speedChanged = Signal(float)   # current speed relative to 1x
 
     def __init__(self, bento):
@@ -84,6 +84,7 @@ class Player(QObject):
         return self.default_frame_interval / self.frame_interval
 
     def set_speed(self, speed):
+        speed = round(speed / self.SPEED_STEP) * self.SPEED_STEP   # keep on the 0.5 grid
         speed = min(self.SPEED_MAX, max(self.SPEED_MIN, speed))
         self.frame_interval = self.default_frame_interval / speed
         print(f"playback speed {speed:.3g}x (frame interval {self.frame_interval:.1f} ms)")
@@ -109,12 +110,12 @@ class Player(QObject):
     @Slot()
     def doubleFrameRate(self):
         """Faster by SPEED_STEP (name kept for existing callers)."""
-        self.set_speed(self.speed() * self.SPEED_STEP)
+        self.set_speed(self.speed() + self.SPEED_STEP)
 
     @Slot()
     def halveFrameRate(self):
         """Slower by SPEED_STEP (name kept for existing callers)."""
-        self.set_speed(self.speed() / self.SPEED_STEP)
+        self.set_speed(self.speed() - self.SPEED_STEP)
 
     @Slot()
     def resetFrameRate(self):
