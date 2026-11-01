@@ -24,9 +24,10 @@ Based on v0.2.1-beta. Tested on Windows 11 with Python 3.6 / PySide2 5.15.2.
 | Action | Result |
 |---|---|
 | Click a bout | Select it (black outline). Click empty space or press `Esc` to deselect. When bouts overlap, the shortest one is picked. |
-| Drag the start/end edge of the selected bout | Move that edge (cursor turns to `↔` near an edge; hatched preview while dragging). On release, overlapping bouts of the same behavior are merged and the video jumps to the edited edge. |
-| Double-click the start/end edge of the selected bout | Reopen that edge as a *pending bout*: the hatched region follows the current time exactly like a hot-key annotation. Confirm with the behavior's hot key **or** a double-click on the timeline at the desired time. `Esc` or another behavior's hot key cancels and restores the original bout. |
+| Drag the start/end edge of the selected bout | Move that edge (cursor turns to `↔` near an edge; hatched preview while dragging). On release, overlapping bouts of the same behavior are merged and the video jumps to the edited edge. A click on the edge that does not move it changes nothing (no time jump). |
+| Double-click the start/end edge of any bout | Reopen that edge as a *pending bout*: the hatched region follows the current time exactly like a hot-key annotation. Confirm with the behavior's hot key **or** a double-click on the timeline at the desired time. `Esc` or another behavior's hot key cancels and restores the original bout. |
 | Double-click on the timeline while a pending bout exists | Commit the pending bout at the clicked time (same as pressing its hot key there). |
+| Double-click away from any bout edge | Jump the time to the clicked point. |
 | `Delete` | Delete the selected bout. (`Backspace` keeps its original delete-hot-key meaning.) |
 
 Dragging anywhere that is not a selected bout's edge still scrubs time as before.

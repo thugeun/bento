@@ -210,6 +210,32 @@ class AnnotationsView(QGraphicsView):
             return None
         return 'start' if d_start <= d_end else 'end'
 
+    def _any_edge_under(self, event):
+        """
+        (chan, bout, 'start'|'end') for the bout edge closest to the cursor on
+        the row under it, within EDGE_GRAB_PX, among visible bouts; else None.
+        Unlike _edge_under this does not require the bout to be selected.
+        """
+        if not self.bento:
+            return None
+        scene_pt = self.mapToScene(event.pos())
+        chan = self.bento.channel_name_at_row(int(scene_pt.y()))
+        if chan is None or chan not in self.bento.annotations.channel_names():
+            return None
+        tol = self.EDGE_GRAB_PX / max(self.transform().m11(), 1e-9)
+        fr = self.bento.get_time().framerate
+        t0 = Timecode(fr, start_seconds=max(0., scene_pt.x() - tol))
+        t1 = Timecode(fr, start_seconds=scene_pt.x() + tol)
+        best = None
+        for bout in self.bento.annotations.channel(chan).get_in_range(t0, t1):
+            if not bout.is_visible():
+                continue
+            for edge, x in (('start', bout.start().float), ('end', bout.start().float + bout.len().float)):
+                d = abs(scene_pt.x() - x)
+                if d <= tol and (best is None or d < best[0]):
+                    best = (d, chan, bout, edge)
+        return best[1:] if best else None
+
     def mousePressEvent(self, event):
         assert isinstance(event, QMouseEvent)
         assert self.bento
@@ -266,11 +292,11 @@ class AnnotationsView(QGraphicsView):
 
     def mouseDoubleClickEvent(self, event):
         """
-        Double-click on an edge of the *selected* bout (click it first to
-        focus it): reopen that edge with the hot-key mechanism (hatched
-        pending region that follows the current time, confirmed with the
-        behavior's hot key, cancelled with Esc).  Double-clicks elsewhere
-        do nothing.
+        Double-click on an edge of any bout: reopen that edge with the hot-key
+        mechanism (hatched pending region that follows the current time,
+        confirmed with the behavior's hot key, cancelled with Esc).  While a
+        bout is pending, a double-click commits it at the clicked time.
+        Double-click away from any edge: jump to that time.
         """
         assert self.bento
         self.skip_release = True
@@ -279,11 +305,18 @@ class AnnotationsView(QGraphicsView):
             # (same as pressing the behavior's hot key there)
             self.bento.set_time(self._time_at(event))
             self.bento.complete_pending_bout()
-        elif event.button() == Qt.LeftButton and self.bento.selected_bout:
-            edge = self._edge_under(event)
-            if edge:
-                chan, bout = self.bento.selected_bout
+        elif event.button() == Qt.LeftButton:
+            hit = self._any_edge_under(event)
+            if hit:
+                chan, bout, edge = hit
+                if self.dragging_edge:
+                    # the first click of the double-click started an edge drag; drop it
+                    self.bento.end_edge_drag()
+                    self.dragging_edge = None
                 self.bento.reopen_bout_edge(chan, bout, edge)
+            else:
+                # double-click away from any edge: jump the time there
+                self.bento.set_time(self._time_at(event))
         event.accept()
 
     def mouseReleaseEvent(self, event):

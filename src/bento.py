@@ -916,11 +916,18 @@ class Bento(QObject):
             return
         chan, bout = self.selected_bout
         edge = self.edge_drag['edge']
-        lo = min(bout.start(), self.edge_drag['orig'])
-        hi = max(bout.end(), self.edge_drag['orig'])
+        orig = self.edge_drag['orig']
+        lo = min(bout.start(), orig)
+        hi = max(bout.end(), orig)
         self.edge_drag = None
+        cur = bout.start() if edge == 'start' else bout.end()
+        if cur == orig:
+            # plain click on the edge, nothing moved: no edit, no time jump
+            if self.undo_stack and self.undo_stack[-1][0] == f"move {bout.name()} {edge}":
+                self.undo_stack.pop()
+            return
         # jump the video to the edited edge so the frame can be checked
-        self.set_time(bout.start() if edge == 'start' else bout.end())
+        self.set_time(cur)
         # merge with any same-behavior bouts now overlapping the edited one
         self.annotations.coalesce_bouts(lo, hi, chan)
         if bout not in self.annotations.channel(chan).get_in_range(bout.start(), bout.end()):
