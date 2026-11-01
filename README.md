@@ -93,6 +93,7 @@ Typical keyboard-only edit: `Enter` (select) → `Enter` (go to nearer edge) →
 ### Fixes
 - File > Save Annotations no longer fails with `NoResultFound` after the Trial window has been reopened (the session is now resolved through the trial, since reopening the Trial window resets the current session id). Sessions without a base directory keep the absolute annotation path.
 - The `List of annotations:` section of saved `.annot` files no longer grows with duplicate names on every load/save cycle (names were appended without checking on load; now kept unique, written unique, and removed fully on delete).
+- Saving over an existing annotation file added a duplicate row to the trial's annotation list every time (the stored relative path was compared with the absolute path from the file dialog). Paths are now resolved before comparing and the existing row is updated instead. Existing duplicates in `~/.bento/bento.db` can be removed with one SQL statement (keep the lowest id per trial + file_path).
 
 ### Time navigation
 - **Mouse wheel** scrolls time anywhere over the main window or a video window: 1 frame per wheel notch (120 angle units, accumulated, so coalesced or fractional events still give one frame per tick), `Shift` = 10 frames, `Ctrl` = 30 frames (constants `WHEEL_FRAMES*` in `src/bento.py`). Trackpad horizontal swipe still works.

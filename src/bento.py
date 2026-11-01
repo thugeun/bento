@@ -443,30 +443,39 @@ class Bento(QObject):
                             trial.stimulus
                             )
                     # Is the annotation filename a new one, or does it exist already?
+                    # Stored paths are relative to the session base directory, so
+                    # compare resolved absolute paths (upstream compared the stored
+                    # relative path with the absolute dialog path, never matched,
+                    # and added a duplicate row on every overwrite).
+                    def _abs(p):
+                        if not isabs(p) and base_directory:
+                            p = os.path.join(base_directory, p)
+                        return os.path.normcase(os.path.normpath(os.path.abspath(p)))
                     existingAnnot = None
                     for annot in trial.annotations:
-                        if annot.file_path == fileName:
+                        if _abs(annot.file_path) == _abs(fileName):
                             existingAnnot = annot
                             break
-                    if self.newAnnotations or not existingAnnot:
-                        investigator = db_sess.query(Investigator).filter(Investigator.id == self.investigator_id).one()
-                        # For unknown reasons, using self.annotations.time_start() behaves differently than self.time_start
-                        newAnnot = AnnotationsData()
-                        newAnnot.file_path = relpath(fileName, base_directory) if base_directory else fileName
-                        newAnnot.sample_rate = self.annotations.sample_rate()
-                        newAnnot.format = self.annotations.format()
-                        newAnnot.start_time = self.time_start.float
-                        newAnnot.start_frame = self.time_start.frame_number
-                        newAnnot.stop_frame = self.time_end.frame_number
-                        newAnnot.annotator_name = investigator.user_name
-                        newAnnot.method = "manual"
-                        newAnnot.trial_id = self.trial_id
-                        db_sess.add(newAnnot)
+                    investigator = db_sess.query(Investigator).filter(Investigator.id == self.investigator_id).one()
+                    annot = existingAnnot if existingAnnot else AnnotationsData()
+                    annot.file_path = relpath(fileName, base_directory) if base_directory else fileName
+                    annot.sample_rate = self.annotations.sample_rate()
+                    annot.format = self.annotations.format()
+                    # For unknown reasons, using self.annotations.time_start() behaves differently than self.time_start
+                    annot.start_time = self.time_start.float
+                    annot.start_frame = self.time_start.frame_number
+                    annot.stop_frame = self.time_end.frame_number
+                    annot.annotator_name = investigator.user_name
+                    annot.method = "manual"
+                    annot.trial_id = self.trial_id
+                    if not existingAnnot:
+                        db_sess.add(annot)
                         db_sess.commit()
-                        trial.annotations.append(newAnnot)
-                        db_sess.commit()
-                        self.newAnnotations = False
+                        trial.annotations.append(annot)
+                    db_sess.commit()
+                    self.newAnnotations = False
                     self.autosave_dirty = False
+                    self.updateWindowTitles(fileName)
 
     def autosave_dir(self, base_directory, video_files=()):
         """
