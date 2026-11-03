@@ -26,7 +26,7 @@ from pose.pose import PoseRegistry
 from channelDialog import ChannelDialog
 from os.path import expanduser, isabs, sep, relpath, splitext
 from utils import fix_path, padded_rectf
-import sys, traceback, time, os, glob
+import sys, traceback, time, os, glob, shutil
 
 # periodic backup of the annotations being edited (see Bento.autosave_annotations)
 AUTOSAVE_INTERVAL_MS = 10 * 60 * 1000
@@ -147,6 +147,7 @@ class Bento(QObject):
         self.reopened_bout = None   # (chan_name, bout) taken out of its channel while re-annotated via pending_bout
         self.bout_clipboard = []    # [(start_frames, end_frames, behavior_name)] from copyChannelAnnotations
         self.undo_stack = []        # [(label, snapshot)] snapshots taken before each bout edit
+        self.current_annot_path = None   # annotation file loaded or last saved (Ctrl+S target)
         self.redo_stack = []
         self.bento_dir = expanduser("~") + sep + ".bento" + sep
         self.loadBehaviors()
@@ -402,80 +403,143 @@ class Bento(QObject):
             print(f"Caught Exception {e}")
             QMessageBox.about(self.mainWindow, "Error", f"Saving behaviors to {fn} failed.  {e}")
 
+    def _annotation_base_directory(self, db_sess):
+        # resolve the session through the trial: self.session_id is reset to
+        # None whenever the Trial window is reopened (original behavior)
+        trial = db_sess.query(Trial).filter(Trial.id == self.trial_id).one()
+        session_id = trial.session_id if trial.session_id is not None else self.session_id
+        return db_sess.query(Session).filter(Session.id == session_id).one().base_directory
+
     @Slot()
     def save_annotations(self):
+        """File > Save Annotations As...: ask for a file name, then write."""
         msgBox = QMessageBox(
             QMessageBox.Question,
             "Save Annotations",
             "This will delete inactive behaviors.  Okay?",
             buttons=QMessageBox.Save | QMessageBox.Cancel)
         result = msgBox.exec()
-        if result == QMessageBox.Save:
-            self.annotations.ensure_active_behaviors()
-            self.annotations.delete_inactive_bouts()
-            with self.db_sessionMaker() as db_sess:
-                # resolve the session through the trial: self.session_id is reset to
-                # None whenever the Trial window is reopened (original behavior)
-                trial = db_sess.query(Trial).filter(Trial.id == self.trial_id).one()
-                session_id = trial.session_id if trial.session_id is not None else self.session_id
-                base_directory = db_sess.query(Session).filter(Session.id == session_id).one().base_directory
-            fileName, _ = QFileDialog.getSaveFileName(
-                self.mainWindow,
-                caption="Annotation File Name",
-                dir=base_directory)
-            if fileName:
-                # ensure a ".annot" extension
-                _, ext = splitext(fileName)
-                if ext != ".annot":
-                    fileName += ".annot"
-                with self.db_sessionMaker() as db_sess:
-                    trial = db_sess.query(Trial).filter(Trial.id == self.trial_id).one()
-                    self.annotations.set_sample_rate(
-                        trial.video_data[0].sample_rate if len(trial.video_data) > 0 else 30.0)
-                    # The following will need to change when video and annotation frame rates can be different
-                    self.annotations.set_start_frame(self.time_start)
-                    self.annotations.set_end_frame(self.time_end)
-                    self.annotations.set_format("Caltech")
-                    with open(fileName, 'w') as file:
-                        self.annotations.write_caltech(
-                            file,
-                            [video_data.file_path for video_data in trial.video_data],
-                            trial.stimulus
-                            )
-                    # Is the annotation filename a new one, or does it exist already?
-                    # Stored paths are relative to the session base directory, so
-                    # compare resolved absolute paths (upstream compared the stored
-                    # relative path with the absolute dialog path, never matched,
-                    # and added a duplicate row on every overwrite).
-                    def _abs(p):
-                        if not isabs(p) and base_directory:
-                            p = os.path.join(base_directory, p)
-                        return os.path.normcase(os.path.normpath(os.path.abspath(p)))
-                    existingAnnot = None
-                    for annot in trial.annotations:
-                        if _abs(annot.file_path) == _abs(fileName):
-                            existingAnnot = annot
-                            break
-                    investigator = db_sess.query(Investigator).filter(Investigator.id == self.investigator_id).one()
-                    annot = existingAnnot if existingAnnot else AnnotationsData()
-                    annot.file_path = relpath(fileName, base_directory) if base_directory else fileName
-                    annot.sample_rate = self.annotations.sample_rate()
-                    annot.format = self.annotations.format()
-                    # For unknown reasons, using self.annotations.time_start() behaves differently than self.time_start
-                    annot.start_time = self.time_start.float
-                    annot.start_frame = self.time_start.frame_number
-                    annot.stop_frame = self.time_end.frame_number
-                    annot.annotator_name = investigator.user_name
-                    annot.method = "manual"
-                    annot.trial_id = self.trial_id
-                    if not existingAnnot:
-                        db_sess.add(annot)
-                        db_sess.commit()
-                        trial.annotations.append(annot)
-                    db_sess.commit()
-                    self.newAnnotations = False
-                    self.autosave_dirty = False
-                    self.updateWindowTitles(fileName)
+        if result != QMessageBox.Save:
+            return
+        self.annotations.ensure_active_behaviors()
+        self.annotations.delete_inactive_bouts()
+        with self.db_sessionMaker() as db_sess:
+            base_directory = self._annotation_base_directory(db_sess)
+        fileName, _ = QFileDialog.getSaveFileName(
+            self.mainWindow,
+            caption="Annotation File Name",
+            dir=self.current_annot_path or base_directory)
+        if not fileName:
+            return
+        # ensure a ".annot" extension
+        _, ext = splitext(fileName)
+        if ext != ".annot":
+            fileName += ".annot"
+        self._write_annotations(fileName, base_directory)
+
+    @Slot()
+    def save_annotations_current(self):
+        """
+        Ctrl+S: copy the open annotation file into the autosave folder
+        (<name>_presave_<timestamp>.annot), then overwrite it with the current
+        annotations.  No dialog, inactive behaviors are left alone.  Falls back
+        to Save As when the trial was loaded without an annotation file.
+        """
+        if not self.current_annot_path:
+            self.save_annotations()
+            return
+        if self.trial_id is None:
+            return
+        path = self.current_annot_path
+        self.annotations.ensure_active_behaviors()
+        with self.db_sessionMaker() as db_sess:
+            _, base_directory, video_files, _ = self._trial_name_parts(db_sess)
+        backup = self.backup_file_before_save(path, base_directory, video_files)
+        self._write_annotations(path, base_directory)
+        msg = f"Saved {os.path.basename(path)}"
+        if backup:
+            msg += f" (previous copy: {os.path.join(AUTOSAVE_DIR, os.path.basename(backup))})"
+        self.mainWindow.statusBar().showMessage(msg, 5000)
+
+    def backup_file_before_save(self, path, base_directory, video_files=()):
+        """
+        Copy an existing annotation file to the autosave folder as
+        <stem>_presave_<YYYYmmdd_HHMMSS>.annot.  Returns the copy's path or None
+        (nothing to back up, or the folder is unavailable).
+        """
+        if not path or not os.path.isfile(path):
+            return None
+        d = self.autosave_dir(base_directory, video_files)
+        if not d:
+            print(f"save: no backup folder for {path}; overwriting without a copy")
+            return None
+        stem, _ = splitext(os.path.basename(path))
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        dst = os.path.join(d, f"{stem}_presave_{stamp}.annot")
+        try:
+            shutil.copy2(path, dst)
+        except OSError as e:
+            print(f"save: backup copy failed: {e}")
+            return None
+        # keep only the newest AUTOSAVE_KEEP pre-save copies of this file
+        old = sorted(glob.glob(os.path.join(d, f"{stem}_presave_*.annot")))
+        for f in old[:-AUTOSAVE_KEEP]:
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+        return dst
+
+    def _write_annotations(self, fileName, base_directory):
+        """Write fileName in Caltech format and register/refresh it in the trial's annotation list."""
+        with self.db_sessionMaker() as db_sess:
+            trial = db_sess.query(Trial).filter(Trial.id == self.trial_id).one()
+            self.annotations.set_sample_rate(
+                trial.video_data[0].sample_rate if len(trial.video_data) > 0 else 30.0)
+            # The following will need to change when video and annotation frame rates can be different
+            self.annotations.set_start_frame(self.time_start)
+            self.annotations.set_end_frame(self.time_end)
+            self.annotations.set_format("Caltech")
+            with open(fileName, 'w') as file:
+                self.annotations.write_caltech(
+                    file,
+                    [video_data.file_path for video_data in trial.video_data],
+                    trial.stimulus
+                    )
+            # Is the annotation filename a new one, or does it exist already?
+            # Stored paths are relative to the session base directory, so
+            # compare resolved absolute paths (upstream compared the stored
+            # relative path with the absolute dialog path, never matched,
+            # and added a duplicate row on every overwrite).
+            def _abs(p):
+                if not isabs(p) and base_directory:
+                    p = os.path.join(base_directory, p)
+                return os.path.normcase(os.path.normpath(os.path.abspath(p)))
+            existingAnnot = None
+            for annot in trial.annotations:
+                if _abs(annot.file_path) == _abs(fileName):
+                    existingAnnot = annot
+                    break
+            investigator = db_sess.query(Investigator).filter(Investigator.id == self.investigator_id).one()
+            annot = existingAnnot if existingAnnot else AnnotationsData()
+            annot.file_path = relpath(fileName, base_directory) if base_directory else fileName
+            annot.sample_rate = self.annotations.sample_rate()
+            annot.format = self.annotations.format()
+            # For unknown reasons, using self.annotations.time_start() behaves differently than self.time_start
+            annot.start_time = self.time_start.float
+            annot.start_frame = self.time_start.frame_number
+            annot.stop_frame = self.time_end.frame_number
+            annot.annotator_name = investigator.user_name
+            annot.method = "manual"
+            annot.trial_id = self.trial_id
+            if not existingAnnot:
+                db_sess.add(annot)
+                db_sess.commit()
+                trial.annotations.append(annot)
+            db_sess.commit()
+            self.newAnnotations = False
+            self.autosave_dirty = False
+            self.updateWindowTitles(fileName)
 
     def autosave_dir(self, base_directory, video_files=()):
         """
@@ -547,6 +611,7 @@ class Bento(QObject):
     def updateWindowTitles(self, annot_path=None):
         """Main window: Bento - <trial> - <annotation file>; video windows: <trial> - <video file>."""
         label = self.trial_label()
+        self.current_annot_path = annot_path or None
         annot = os.path.basename(annot_path) if annot_path else "new annotations"
         self.mainWindow.setWindowTitle(" - ".join(p for p in ("Bento", label, annot) if p))
         for widget in self.video_widgets:
