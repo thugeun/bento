@@ -20,6 +20,8 @@
 
 Based on v0.2.1-beta. Tested on Windows 11 with Python 3.6 / PySide2 5.15.2.
 
+Headless regression tests for the changes below live in `tests/` (`python tests/run_all.py` with the `bento` env; each `test_*.py` also runs on its own). They drive the real classes with `QT_QPA_PLATFORM=offscreen`; `test_wheel_real.py` needs a real Windows desktop and is skipped headless.
+
 ### Mouse editing of annotation bouts (annotations view)
 | Action | Result |
 |---|---|
