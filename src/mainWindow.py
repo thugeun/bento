@@ -140,7 +140,7 @@ class MainWindow(QMainWindow):
         self.redoAction.triggered.connect(bento.redo)
         self.editMenu.addSeparator()
         self.splitAction = self.editMenu.addAction("Split Bout at Time Line")
-        self.splitAction.setShortcuts([QKeySequence("Ctrl+Return"), QKeySequence("Ctrl+Enter")])
+        self.splitAction.setShortcut(QKeySequence("Alt+C"))
         self.splitAction.setShortcutContext(Qt.ApplicationShortcut)
         self.splitAction.triggered.connect(bento.splitSelectedBoutAtCursor)
 
