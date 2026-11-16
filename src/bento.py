@@ -807,29 +807,21 @@ class Bento(QObject):
     def update_current_annotations(self):
         """
         Rebuild the list of bouts spanning the current time on every channel
-        (active channels first, then the rest in channel order) and publish it
-        to the label widgets as (chan, behavior_name, color, bout, is_selected)
-        tuples, selected bout first.
+        and publish one line per channel (channel order) to the label widgets:
+        (chan, is_active, [(chan, behavior_name, color, bout, is_selected), ...]).
+        Channels without a bout at this time still get a line, so the label
+        layout does not jump as bouts start and end.
         """
         self.current_annotations.clear()
-        channels = list(self.active_channels) + [
-            ch for ch in self.annotations.channel_names() if ch not in self.active_channels]
-        for ch in channels:
-            bouts = self.annotations.channel(ch).get_at(self.current_time)
-            for bout in bouts:
+        lines = []
+        for ch in self.annotations.channel_names():
+            entries = []
+            for bout in self.annotations.channel(ch).get_at(self.current_time):
                 if bout.is_visible():
                     self.current_annotations.append((ch, bout))
-        sel = self.selected_bout
-        if sel and sel in self.current_annotations:
-            self.current_annotations.remove(sel)
-            self.current_annotations.insert(0, sel)
-        self.currentAnnotsChanged.emit([(
-            c,
-            bout.name(),
-            bout.color(),
-            bout,
-            self.is_selected(bout))
-            for (c, bout) in self.current_annotations])
+                    entries.append((ch, bout.name(), bout.color(), bout, self.is_selected(bout)))
+            lines.append((ch, ch in self.active_channels, entries))
+        self.currentAnnotsChanged.emit(lines)
 
     # Bout selection / editing via the annotations view
 
@@ -943,6 +935,26 @@ class Bento(QObject):
             self.update_current_annotations()
             return
         self.select_bout(chan, bout)
+
+    def selectBoutFromLabelLine(self, entries):
+        """
+        Click on a channel's label line (main window): select the first bout
+        of that line; if one of them is already selected, move to the next;
+        after the last, clear the selection.
+        """
+        bouts = [(e[0], e[3]) for e in entries]
+        if not bouts:
+            return
+        cur = None
+        if self.selected_bout:
+            cur = next((i for i, (_, b) in enumerate(bouts) if self.selected_bout[1] is b), None)
+        if cur is None:
+            self.select_bout(*bouts[0])
+        elif cur + 1 < len(bouts):
+            self.select_bout(*bouts[cur + 1])
+        else:
+            self.clear_selection()
+            self.update_current_annotations()
 
     @Slot(int)
     def selectChannelByIndex(self, ix):
@@ -1284,7 +1296,8 @@ class Bento(QObject):
     def toNextEvent(self):
         next_event = self.time_end
         for (ch, bout) in self.current_annotations:
-            next_event = min(next_event, bout.end() + 1)
+            if ch in self.active_channels:   # labels list every channel; jumps follow the active one
+                next_event = min(next_event, bout.end() + 1)
         for ch in self.active_channels:
             next_bout = self.annotations.channel(ch).get_next_start(self.current_time)
             next_event = min(next_event, next_bout.start())
@@ -1294,7 +1307,8 @@ class Bento(QObject):
     def toPrevEvent(self):
         prev_event = self.time_start
         for (ch, bout) in self.current_annotations:
-            prev_event = max(prev_event, bout.start() - 1)
+            if ch in self.active_channels:   # labels list every channel; jumps follow the active one
+                prev_event = max(prev_event, bout.start() - 1)
         for ch in self.active_channels:
             prev_bout = self.annotations.channel(ch).get_prev_end(self.current_time - 1)
             prev_event = max(prev_event, prev_bout.end())

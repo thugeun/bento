@@ -3,8 +3,8 @@
 from video.videoWindow_ui import Ui_videoFrame
 import video.seqIo as seqIo
 import video.mp4Io as mp4Io
-from qtpy.QtCore import QEvent, Signal, Slot, QMargins, QPointF, Qt
-from qtpy.QtGui import QBrush, QFontMetrics, QPen, QPixmap, QImage, QPolygonF
+from qtpy.QtCore import QEvent, Signal, Slot, QPointF, QRect, Qt
+from qtpy.QtGui import QBrush, QColor, QFontMetrics, QPen, QPixmap, QImage, QPolygonF
 from qtpy.QtWidgets import QFrame, QGraphicsScene
 from timecode import Timecode
 import numpy as np
@@ -42,38 +42,52 @@ class VideoScene(QGraphicsScene):
     def drawForeground(self, painter, rect):
         # add poses
         self.drawPoses(painter)
-        # add annotations
+        # add annotations: one line per channel, "<marker> <chan>: name, name"
         font = painter.font()
-        pointSize = font.pointSize()+10
-        font.setPointSize(pointSize)
+        font.setPointSize(font.pointSize() + 10)
         painter.setFont(font)
-        margins = QMargins(10, 10, 0, 0)
         fm = QFontMetrics(font)
-        flags = Qt.AlignLeft | Qt.AlignTop
-        rectWithMargins = rect.toRect()
-        rectWithMargins -= margins
-        whiteBrush = QBrush(Qt.white)
-        blackBrush = QBrush(Qt.black)
-        self.annot_bounds = []   # [(QRect in scene coords, annot)] for click hit-testing
-        for annot in self.annots or []:
-            selected = len(annot) > 4 and annot[4]
-            painter.setBrush(whiteBrush if annot[2].lightnessF() < 0.5 else blackBrush)
-            text = ('▶ ' if selected else '') + annot[0] + ": " + annot[1]
-            bounds = fm.boundingRect(rectWithMargins, flags, text)
+        line_h = fm.height() + 4            # rows never overlap, whatever the font
+        marker_w = fm.horizontalAdvance('▶ ')
+        x0 = rect.toRect().left() + 10
+        y = rect.toRect().top() + 10
+        self.annot_bounds = []   # [(QRect in scene coords, entry)] for click hit-testing
+
+        def box(x, text, color, bg=None, outline=None, width=None):
+            """Draw text at (x, y) on a contrasting box; return its width."""
+            w = fm.horizontalAdvance(text) if width is None else width
+            r = QRect(x, y, w, line_h)
+            if bg is None:
+                bg = Qt.white if color.lightnessF() < 0.5 else Qt.black
             painter.setPen(Qt.NoPen)
-            painter.drawRect(bounds)
-            if selected:
-                outline = QPen(annot[2])
-                outline.setWidth(2)
-                painter.setPen(outline)
+            painter.setBrush(QBrush(bg))
+            painter.drawRect(r)
+            if outline is not None:
+                pen = QPen(outline)
+                pen.setWidth(2)
+                painter.setPen(pen)
                 painter.setBrush(Qt.NoBrush)
-                painter.drawRect(bounds)
-            painter.setPen(annot[2])
-            painter.drawText(bounds, text)
-            self.annot_bounds.append((bounds, annot))
-            margins.setTop(margins.top() + pointSize + 3)
-            rectWithMargins = rect.toRect()
-            rectWithMargins -= margins
+                painter.drawRect(r)
+            painter.setPen(color)
+            painter.drawText(r, Qt.AlignLeft | Qt.AlignVCenter, text)
+            return w
+
+        for line in self.annots or []:
+            chan, active, entries = line
+            x = x0
+            # marker column has a fixed width so the text never shifts
+            box(x, '▶ ' if active else '', QColor(Qt.white), bg=Qt.black, width=marker_w)
+            x += marker_w
+            x += box(x, chan + ': ', QColor(Qt.white), bg=Qt.black)
+            for i, entry in enumerate(entries):
+                if i:
+                    x += box(x, ', ', QColor(Qt.white), bg=Qt.black)
+                color = entry[2]
+                selected = len(entry) > 4 and entry[4]
+                w = box(x, entry[1], color, outline=color if selected else None)
+                self.annot_bounds.append((QRect(x, y, w, line_h), entry))
+                x += w
+            y += line_h
 
     def annotAt(self, scene_pos):
         """Annotation entry whose label box contains scene_pos, or None."""

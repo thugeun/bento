@@ -87,8 +87,10 @@ class MainWindow(QMainWindow):
         self.setFocusPolicy(Qt.StrongFocus)
         self.setFocus()
 
-        # annotation label: clickable lines (see eventFilter)
-        self.current_annots = []
+        # annotation label: one row per channel in a 2-column table
+        # (fixed-width marker column, so the text never shifts; see eventFilter)
+        self.annot_lines = []
+        self.ui.annotLabel.setTextFormat(Qt.RichText)
         self.ui.annotLabel.installEventFilter(self)
         self.ui.annotLabel.setCursor(Qt.PointingHandCursor)
 
@@ -256,26 +258,36 @@ class MainWindow(QMainWindow):
         self.show()
 
     @staticmethod
-    def annotEntryText(a):
-        """(chan, name, color, bout, is_selected) -> label line; selected bout is marked."""
-        selected = len(a) > 4 and a[4]
-        return ('▶ ' if selected else '') + a[0] + ': ' + a[1]
+    def annotLineHtml(line):
+        """(chan, is_active, entries) -> '<chan>: <name>, <name>' with colored names; selected bout underlined bold."""
+        chan, _, entries = line
+        parts = []
+        for e in entries:
+            name = e[1].replace('&', '&amp;').replace('<', '&lt;')
+            if len(e) > 4 and e[4]:
+                name = '<b><u>' + name + '</u></b>'
+            parts.append(f'<span style="color:{e[2].name()}">{name}</span>')
+        return chan.replace('<', '&lt;') + ': ' + ', '.join(parts)
 
     @Slot(list)
-    def updateAnnotLabel(self, annots):
-        self.current_annots = list(annots)
-        label = '\n'.join(self.annotEntryText(a) for a in annots)
-        self.ui.annotLabel.setText(label)
+    def updateAnnotLabel(self, lines):
+        self.annot_lines = list(lines)
+        rows = ''.join(
+            '<tr><td width="18">' + ('\u25b6' if l[1] else '') + '</td>'
+            '<td>' + self.annotLineHtml(l) + '</td></tr>' for l in lines)
+        self.ui.annotLabel.setText('<table cellspacing="0" cellpadding="0">' + rows + '</table>')
         self.show()
 
     def eventFilter(self, obj, event):
-        # click on a line of the annotation label selects that bout
-        if (obj is self.ui.annotLabel and event.type() == QEvent.MouseButtonPress
-                and event.button() == Qt.LeftButton and self.current_annots):
-            line_h = max(1, self.ui.annotLabel.fontMetrics().lineSpacing())
+        # click on a channel's label line selects (cycles) the bouts of that line
+        if (obj is self.ui.annotLabel
+                and event.type() == QEvent.MouseButtonPress
+                and event.button() == Qt.LeftButton and self.annot_lines):
+            # table rows share the content height evenly
+            line_h = max(1, obj.sizeHint().height() / len(self.annot_lines))
             ix = int(event.pos().y() // line_h)
-            if 0 <= ix < len(self.current_annots):
-                self.bento.selectBoutFromLabel(self.current_annots[ix])
+            if 0 <= ix < len(self.annot_lines):
+                self.bento.selectBoutFromLabelLine(self.annot_lines[ix][2])
             return True
         return super().eventFilter(obj, event)
 

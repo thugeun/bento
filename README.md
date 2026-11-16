@@ -48,7 +48,7 @@ Selection works on every channel, including channels added after the trial was l
 Typical keyboard-only edit: `Enter` (select) → `Enter` (go to nearer edge) → `Backspace` (open edge) → arrow keys / wheel to the new frame → behavior hot key.
 
 ### Labels for every channel
-- The behavior labels in the video window and under the main window list the bouts at the current time on **every** channel, not only the active one. Active channels come first, then the others in channel order; the selected bout is always on top. Clicking a label still selects that bout, whatever its channel.
+- The behavior labels in the video window and under the main window show one line per channel, in channel order, as `1: rest, sniff_face` (every bout at the current time on that channel; channels with no bout keep an empty line). A `▶` in a fixed-width column marks the active channel, so lines never shift. Rows are spaced by the font height and never overlap. The selected bout is outlined (video) / bold-underlined (main window). Clicking a behavior name in the video window selects that bout; clicking a line in the main window selects the first bout of that channel, then cycles through the others, then clears.
 
 ### Selecting bouts from the labels
 - Click a line of the current-annotations label (left of the video) or a label drawn over the video to select that bout; click it again to deselect.
