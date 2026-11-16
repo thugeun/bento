@@ -806,12 +806,15 @@ class Bento(QObject):
 
     def update_current_annotations(self):
         """
-        Rebuild the list of bouts spanning the current time (active channel)
-        and publish it to the label widgets as
-        (chan, behavior_name, color, bout, is_selected) tuples, selected bout first.
+        Rebuild the list of bouts spanning the current time on every channel
+        (active channels first, then the rest in channel order) and publish it
+        to the label widgets as (chan, behavior_name, color, bout, is_selected)
+        tuples, selected bout first.
         """
         self.current_annotations.clear()
-        for ch in self.active_channels:
+        channels = list(self.active_channels) + [
+            ch for ch in self.annotations.channel_names() if ch not in self.active_channels]
+        for ch in channels:
             bouts = self.annotations.channel(ch).get_at(self.current_time)
             for bout in bouts:
                 if bout.is_visible():

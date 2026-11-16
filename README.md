@@ -47,6 +47,9 @@ Selection works on every channel, including channels added after the trial was l
 
 Typical keyboard-only edit: `Enter` (select) → `Enter` (go to nearer edge) → `Backspace` (open edge) → arrow keys / wheel to the new frame → behavior hot key.
 
+### Labels for every channel
+- The behavior labels in the video window and under the main window list the bouts at the current time on **every** channel, not only the active one. Active channels come first, then the others in channel order; the selected bout is always on top. Clicking a label still selects that bout, whatever its channel.
+
 ### Selecting bouts from the labels
 - Click a line of the current-annotations label (left of the video) or a label drawn over the video to select that bout; click it again to deselect.
 - `Ctrl+1` … `Ctrl+9` select the channel at that position in the channel combo box.
