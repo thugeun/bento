@@ -47,11 +47,13 @@ Selection works on every channel, including channels added after the trial was l
 
 Typical keyboard-only edit: `Enter` (select) → `Enter` (go to nearer edge) → `Backspace` (open edge) → arrow keys / wheel to the new frame → behavior hot key.
 
-### Labels for every channel
-- The behavior labels in the video window and under the main window show one line per channel, in channel order, as `1: rest, sniff_face` (every bout at the current time on that channel; channels with no bout keep an empty line). A `▶` in a fixed-width column marks the active channel, so lines never shift. Rows are spaced by the font height and never overlap. The selected bout is outlined (video) / bold-underlined (main window). Clicking a behavior name in the video window selects that bout; clicking a line in the main window selects the first bout of that channel, then cycles through the others, then clears.
-
-### Selecting bouts from the labels
-- Click a line of the current-annotations label (left of the video) or a label drawn over the video to select that bout; click it again to deselect.
+### Labels for every channel, selecting from the labels
+- The behavior labels drawn over the video and shown in the main window list **every channel**, one row per channel in channel order, as `1: rest, sniff_face` (all bouts at the current time on that channel; a channel with no bout keeps an empty row, so rows do not move as bouts start and end).
+- A `▶` in a fixed-width column marks the active channel; the text lines up whether or not a row has the marker. Rows are spaced by the font height and never overlap.
+- The selected bout is outlined (video) / bold-underlined (main window).
+- Video window: click a behavior name to select that bout; click it again to deselect.
+- Main window: click a row to select the first bout of that channel; each further click moves to the next bout of the row, after the last the selection is cleared.
+- Next/previous event jumps still use only the active channel's bouts.
 - `Ctrl+1` … `Ctrl+9` select the channel at that position in the channel combo box.
 
 ### Relabel / delete a bout from a context menu

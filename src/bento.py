@@ -1189,7 +1189,7 @@ class Bento(QObject):
     @Slot()
     def splitSelectedBoutAtCursor(self):
         """
-        Ctrl+Enter / Edit > Split Bout: cut the selected bout(s) at the current
+        Alt+C / Edit > Split Bout: cut the selected bout(s) at the current
         time; with no selection, the bout under the time line on the active channel.
         """
         t = self.current_time
